@@ -1,0 +1,16 @@
+.venv/
+dataset/
+resources/
+
+# Local environment files
+.env
+src/synapse/.env
+
+# Python cache/build artifacts
+__pycache__/
+*.py[cod]
+
+# Local databases and generated outputs
+*.sqlite3
+db.sqlite3
+dist/

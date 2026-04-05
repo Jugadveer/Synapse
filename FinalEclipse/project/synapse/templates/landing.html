@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NeuroCare AI - Dementia Companion</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary-teal: #34a5bb;
+            --dark-teal: #247a8a;
+            --accent-orange: #e5855e;
+            --bg-light: #f8fafc;
+            --text-main: #1a2b3c;
+            --text-muted: #64748b;
+            --white: #ffffff;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Inter', sans-serif;
+        }
+
+        body {
+            background-color: #cbd5e1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        /* Mobile Container Layout */
+        .app-container {
+            width: 375px;
+            height: 750px;
+            background-color: var(--bg-light);
+            border-radius: 40px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.2);
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .scrollable-content {
+            flex: 1;
+            overflow-y: auto;
+            scrollbar-width: none;
+            padding: 24px;
+        }
+
+        .scrollable-content::-webkit-scrollbar { display: none; }
+
+        /* Navigation Logic */
+        .page {
+            display: none;
+            animation: fadeIn 0.4s ease;
+        }
+
+        .page.active { display: block; }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Header UI */
+        .logo-container {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 14px;
+            background: #e0f2f1;
+            border: 1px solid #b2dfdb;
+            border-radius: 20px;
+            color: var(--dark-teal);
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .brain-img {
+            width: 100px;
+            display: block;
+            margin: 20px auto;
+            filter: drop-shadow(0 8px 12px rgba(52, 165, 187, 0.2));
+        }
+
+        /* Typography */
+        h1 {
+            color: var(--text-main);
+            text-align: center;
+            font-size: 30px;
+            line-height: 1.1;
+            margin-bottom: 15px;
+        }
+
+        .highlight-teal { color: #409191; }
+        .highlight-orange { color: var(--accent-orange); }
+
+        .desc {
+            color: var(--text-muted);
+            text-align: center;
+            font-size: 15px;
+            line-height: 1.5;
+            margin-bottom: 30px;
+        }
+
+        /* Stats Component */
+        .stats-row {
+            background: var(--white);
+            border-radius: 20px;
+            display: flex;
+            padding: 20px 10px;
+            justify-content: space-around;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.03);
+            margin-bottom: 32px;
+        }
+
+        .stat-box { text-align: center; }
+        .stat-val { font-weight: 800; font-size: 18px; color: #2d7a7a; display: block; }
+        .stat-lbl { font-size: 11px; color: var(--text-muted); }
+
+        /* Feature Cards */
+        .section-header {
+            font-weight: 700;
+            font-size: 18px;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .card {
+            background: var(--white);
+            padding: 16px;
+            border-radius: 20px;
+            margin-bottom: 12px;
+            display: flex;
+            gap: 15px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.02);
+            transition: transform 0.2s;
+        }
+
+        .icon-box {
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            color: white;
+            font-size: 20px;
+        }
+
+        .bg-teal { background-color: var(--primary-teal); }
+        .bg-orange { background-color: var(--accent-orange); }
+        .bg-purple { background-color: #8b5cf6; }
+
+        .card-info h3 { font-size: 16px; margin-bottom: 4px; color: var(--text-main); }
+        .card-info p { font-size: 13px; color: var(--text-muted); line-height: 1.4; }
+
+        /* Buttons & Forms */
+        .btn {
+            width: 100%;
+            padding: 16px;
+            border-radius: 30px;
+            border: none;
+            font-size: 16px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+
+        .btn-main { background: linear-gradient(to right, #34a5bb, #4db6ac); color: white; margin-top: 20px; }
+        .btn-link { background: none; color: var(--dark-teal); font-size: 14px; margin-top: 12px; }
+
+        .input-wrap {
+            margin-bottom: 16px;
+            position: relative;
+        }
+
+        .input-wrap input {
+            width: 100%;
+            padding: 16px 16px 16px 48px;
+            border: 1px solid #e2e8f0;
+            border-radius: 16px;
+            outline: none;
+        }
+
+        .input-icon { position: absolute; left: 18px; top: 16px; color: #94a3b8; }
+        
+        .back-nav {
+            padding: 20px 0;
+            cursor: pointer;
+            color: var(--text-muted);
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="app-container">
+        
+        <div id="homePage" class="scrollable-content page active">
+            <div class="logo-container">
+                <div class="badge">🛡️ Synapse AI</div>
+                <img src="https://cdn-icons-png.flaticon.com/512/3233/3233215.png" class="brain-img" alt="Brain Icon">
+            </div>
+
+            <h1>Your AI Powered<br><span class="highlight-teal">Dementia</span> <span class="highlight-orange">Care</span><br>Companion</h1>
+            <p class="desc">Early detection, daily monitoring, and cognitive exercises — all in one calm, accessible app.</p>
+            
+            <div class="stats-row">
+                <div class="stat-box"><span class="stat-val">94%</span><span class="stat-lbl">Accuracy</span></div>
+                <div class="stat-box"><span class="stat-val">10K+</span><span class="stat-lbl">Patients</span></div>
+                <div class="stat-box"><span class="stat-val">30%</span><span class="stat-lbl">Improvement</span></div>
+            </div>
+
+            <h2 class="section-header">✨ What we offer</h2>
+
+            <div class="card">
+                <div class="icon-box bg-teal">🎙️</div>
+                <div class="card-info">
+                    <h3>Voice Companion</h3>
+                    <p>Real-time AI conversations that listen, understand, and respond with empathy.</p>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="icon-box bg-orange">🧠</div>
+                <div class="card-info">
+                    <h3>Smart Detection</h3>
+                    <p>Upload audio or MRI scans. AI analyses patterns to assess dementia risk.</p>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="icon-box bg-teal">📊</div>
+                <div class="card-info">
+                    <h3>Progress Dashboard</h3>
+                    <p>Beautiful charts tracking weekly cognitive scores and activity trends.</p>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="icon-box bg-purple">🎮</div>
+                <div class="card-info">
+                    <h3>Audio Mind Games</h3>
+                    <p>Fun, audio-based brain exercises like word recall and story sequencing.</p>
+                </div>
+            </div>
+
+            <div style="background: #e0f2f1; padding: 20px; border-radius: 24px; text-align: center; margin-top: 20px;">
+                <p style="font-weight: 700; font-size: 14px; margin-bottom: 8px;">Ready to start?</p>
+                <button class="btn btn-main" onclick="openSignup()" style="margin-top: 0;">Get Started Free</button>
+                <button class="btn btn-link" onclick="goTo('loginPage')">Already have an account? Sign in</button>
+            </div>
+        </div>
+
+        <!-- LOGIN / SIGNUP PAGE -->
+<div id="loginPage" class="scrollable-content page">
+
+    <div class="back-nav" onclick="goTo('homePage')">
+        ← Back
+    </div>
+
+    <h1 id="formTitle">Welcome Back</h1>
+    <p class="desc" id="formDesc">Sign in to continue</p>
+<form id="authForm" method="POST">
+    {% csrf_token %}
+
+    <!-- Signup Fields -->
+    <div id="signupFields" style="display: none;">
+        
+        <div class="input-wrap">
+            <span class="input-icon">👤</span>
+            <input type="text" name="signup_username" placeholder="Username">
+        </div>
+
+        <div class="input-wrap">
+            <span class="input-icon">🧑</span>
+            <input type="text" name="name" placeholder="Full Name">
+        </div>
+
+        <div class="input-wrap">
+            <span class="input-icon">📧</span>
+            <input type="email" name="email" placeholder="Email">
+        </div>
+
+        <!-- ✅ FIXED GENDER DROPDOWN -->
+        <div class="input-wrap">
+            <span class="input-icon">⚧</span>
+            <select name="gender" style="width:100%; padding:16px 16px 16px 48px; border-radius:16px; border:1px solid #e2e8f0;">
+                <option value="">Select Gender</option>
+                <option value="Male">Male</option>
+                <option value="Female">Female</option>
+                <option value="Other">Other</option>
+            </select>
+        </div>
+
+        <div class="input-wrap">
+            <span class="input-icon">🎂</span>
+            <input type="number" name="age" placeholder="Age">
+        </div>
+
+        <div class="input-wrap">
+            <span class="input-icon">🔒</span>
+            <input type="password" name="signup_password" placeholder="Password">
+        </div>
+    </div>
+
+    <!-- Login Fields -->
+    <div id="loginFields">
+        <div class="input-wrap">
+            <span class="input-icon">👤</span>
+            <input type="text" name="username" placeholder="Username" required>
+        </div>
+
+        <div class="input-wrap">
+            <span class="input-icon">🔒</span>
+            <input type="password" name="password" placeholder="Password" required>
+        </div>
+    </div>
+
+    <button type="submit" id="submitBtn" class="btn btn-main">
+        Sign In
+    </button>
+</form>
+
+    <p style="text-align:center; margin-top:15px;">
+        <span id="toggleText">Don't have an account?</span>
+        <button type="button" onclick="toggleForm()" id="toggleBtn" class="btn btn-link">
+            Sign Up
+        </button>
+    </p>
+
+</div>
+
+
+    <script>
+    let isSignup = false;
+
+    function goTo(pageId) {
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    document.getElementById(pageId).classList.add('active');
+
+    if (pageId === 'loginPage') {
+        isSignup = false;   // 👈 ensures login mode
+        updateForm();
+    }
+}
+
+    function openSignup() {
+    goTo('loginPage');
+    isSignup = true;
+    updateForm();
+}
+
+    function toggleForm() {
+        isSignup = !isSignup;
+        updateForm();
+    }
+
+    function updateForm() {
+    const signupFields = document.getElementById('signupFields');
+    const loginFields = document.getElementById('loginFields');
+    const title = document.getElementById('formTitle');
+    const desc = document.getElementById('formDesc');
+    const btn = document.getElementById('submitBtn');
+    const toggleText = document.getElementById('toggleText');
+    const toggleBtn = document.getElementById('toggleBtn');
+    const form = document.getElementById('authForm');
+
+    if (isSignup) {
+        signupFields.style.display = 'block';
+        loginFields.style.display = 'none';
+
+        // ✅ MAKE SIGNUP FIELDS REQUIRED
+        signupFields.querySelectorAll('input, select').forEach(el => el.required = true);
+
+        // ❌ REMOVE REQUIRED FROM LOGIN
+        loginFields.querySelectorAll('input').forEach(el => el.required = false);
+
+        title.innerText = "Create Account";
+        desc.innerText = "Sign up to get started";
+        btn.innerText = "Sign Up";
+
+        toggleText.innerText = "Already have an account?";
+        toggleBtn.innerText = "Sign In";
+
+        form.action = "/signup/";
+
+    } else {
+        signupFields.style.display = 'none';
+        loginFields.style.display = 'block';
+
+        // ✅ MAKE LOGIN REQUIRED
+        loginFields.querySelectorAll('input').forEach(el => el.required = true);
+
+        // ❌ REMOVE REQUIRED FROM SIGNUP
+        signupFields.querySelectorAll('input, select').forEach(el => el.required = false);
+
+        title.innerText = "Welcome Back";
+        desc.innerText = "Sign in to continue";
+        btn.innerText = "Sign In";
+
+        toggleText.innerText = "Don't have an account?";
+        toggleBtn.innerText = "Sign Up";
+
+        form.action = "/login/";
+    }
+}
+
+    updateForm();
+</script>
+</body>
+</html>

@@ -1,0 +1,8 @@
+[
+  {
+    "id": 0,
+    "text": "i read book till page 78 today",
+    "entity": "book reading progress",
+    "entity_type": "fact",
+    "confidence": 0.9,
+    "timestamp": 

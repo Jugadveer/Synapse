@@ -1,0 +1,40 @@
+# Django & Async
+Django==4.2.7
+channels==4.0.0
+channels-redis==4.1.0
+daphne==4.0.0
+asgiref==3.7.1
+aiofiles==23.2.1
+
+# ML/AI Models
+# Python 3.13 requires newer Torch wheels.
+torch>=2.6.0,<2.12.0
+transformers>=4.49.0,<5.0.0
+tf-keras
+accelerate>=1.1.0,<2.0.0
+sentence-transformers>=3.2.0,<6.0.0
+faster-whisper>=1.1.0,<2.0.0
+
+# Vector Storage
+faiss-cpu>=1.9.0,<1.14.0
+
+# API Clients
+openai>=1.70.0,<2.0.0
+httpx>=0.28.1,<1.0.0
+google-generativeai==0.3.0
+gTTS>=2.5.4,<3.0.0
+
+# Configuration
+python-dotenv==1.0.0
+python-decouple==3.8
+
+# Utilities
+numpy>=2.1.0,<3.0.0
+requests==2.31.0
+noisereduce>=3.0.0,<4.0.0
+
+# Development
+black==23.12.0
+flake8==6.1.0
+pytest==7.4.3
+pytest-asyncio==0.21.1

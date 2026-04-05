@@ -1,0 +1,1122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Dementia Care AI</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --bg-body: #f4f7f8;
+            --primary: #3ba9c2;
+            --text-main: #2d3436;
+            --text-sub: #636e72;
+            --accent-orange: #ff8a65;
+            --accent-purple: #9575cd;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+
+        body {
+            background-color: #cbd5e0;
+            font-family: 'Inter', sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px;
+            overflow: hidden;
+        }
+
+        .app-shell {
+            width: 375px;
+            height: 750px;
+            background-color: var(--bg-body);
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            border-radius: 40px;
+            overflow: hidden;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.2);
+        }
+
+        /* --- SCREEN ENGINE --- */
+        .screen {
+            position: absolute;
+            top: 0; left: 0; width: 100%;
+            height: calc(100% - 75px);
+            background-color: var(--bg-body);
+            display: none;
+            flex-direction: column;
+            overflow-y: auto;
+            z-index: 10;
+        }
+        .screen.active { display: flex; }
+
+        /* --- SHARED COMPONENTS --- */
+        .padding-wrap { padding: 24px 20px; }
+        .back-nav { display: flex; align-items: center; gap: 15px; margin-bottom: 25px; }
+        .back-btn { background: none; border: none; font-size: 18px; cursor: pointer; color: var(--text-main); }
+        .how-it-works { background: white; border-radius: 20px; padding: 20px; margin-top: 20px; box-shadow: 0 4px 10px rgba(0,0,0,0.02); }
+        .how-it-works h4 { font-size: 15px; margin-bottom: 8px; color: var(--text-main); }
+        .how-it-works p { font-size: 13px; color: var(--text-sub); line-height: 1.5; }
+
+        /* --- HOME SCREEN --- */
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; }
+        .user-greeting p { font-size: 14px; color: var(--text-sub); }
+        .user-greeting h1 { font-size: 26px; font-weight: 700; color: var(--text-main); }
+        .avatar { width: 45px; height: 45px; background: var(--primary); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 18px; }
+        
+        .hero-card { background: linear-gradient(135deg, #e0f7f9 0%, #f1f8f9 100%); border-radius: 28px; padding: 24px; position: relative; margin-bottom: 20px; }
+        .badge { display: flex; align-items: center; gap: 6px; color: var(--primary); font-size: 12px; font-weight: 700; text-transform: uppercase; margin-bottom: 12px; }
+        .hero-card h2 { font-size: 20px; width: 70%; margin-bottom: 8px; color: var(--text-main); }
+        .hero-card p { font-size: 13px; width: 65%; color: var(--text-sub); margin-bottom: 20px; line-height: 1.5; }
+        .btn-action { background: var(--primary); color: white; border: none; padding: 12px 20px; border-radius: 14px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 10px; }
+        .brain-deco { position: absolute; right: 10px; top: 20px; width: 100px; pointer-events: none; }
+
+        .status-strip { background: white; padding: 16px 20px; border-radius: 22px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; box-shadow: 0 4px 10px rgba(0,0,0,0.02); }
+        .status-label span { font-size: 11px; color: var(--text-sub); text-transform: uppercase; }
+        .status-label h3 { color: #27ae60; font-size: 18px; }
+        .indicator { display: flex; gap: 5px; }
+        .dot { width: 10px; height: 28px; background: #edeff0; border-radius: 4px; }
+        .dot.active { background: #27ae60; }
+
+        .menu-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+        .menu-item { background: white; padding: 20px; border-radius: 24px; cursor: pointer; position: relative; }
+        .icon-wrap { width: 42px; height: 42px; border-radius: 12px; display: flex; align-items: center; justify-content: center; color: white; margin-bottom: 12px; }
+        .menu-item h4 { font-size: 14px; margin-bottom: 4px; color: var(--text-main); }
+        .menu-item p { font-size: 11px; color: var(--text-sub); }
+        .chevron { font-size: 10px; color: #ccc; margin-top: 12px; display: block; }
+
+        /* --- DASHBOARD STYLES --- */
+        .dash-risk-card { background: #e7f6f2; border-radius: 20px; padding: 16px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .risk-info { display: flex; align-items: center; gap: 12px; }
+        .risk-icon-circle { width: 40px; height: 40px; background: #3ba9c233; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: var(--primary); }
+        .risk-percentage { color: #27ae60; font-weight: 700; font-size: 14px; }
+        .stat-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 25px; }
+        .stat-box { background: white; border-radius: 18px; padding: 15px 5px; text-align: center; box-shadow: 0 4px 10px rgba(0,0,0,0.02); }
+        .stat-box i { color: var(--primary); margin-bottom: 8px; font-size: 18px; }
+        .stat-box h4 { font-size: 18px; color: var(--text-main); }
+        .stat-box p { font-size: 10px; color: var(--text-sub); text-transform: uppercase; letter-spacing: 0.5px; }
+        .chart-wrapper { background: white; border-radius: 24px; padding: 20px; margin-bottom: 20px; box-shadow: 0 4px 10px rgba(0,0,0,0.02); }
+        .chart-wrapper h4 { font-size: 14px; margin-bottom: 15px; color: var(--text-main); font-weight: 600; }
+        .canvas-container { position: relative; height: 160px; width: 100%; }
+
+        /* --- DEMENTIA SCAN SCREEN --- */
+        .toggle-container { background: #e9eff1; border-radius: 15px; display: flex; padding: 5px; margin-bottom: 25px; }
+        .toggle-btn { flex: 1; padding: 12px; border: none; border-radius: 12px; font-size: 14px; font-weight: 600; cursor: pointer; background: transparent; color: var(--text-sub); display: flex; align-items: center; justify-content: center; gap: 8px; }
+        .toggle-btn.active { background: white; color: var(--text-main); box-shadow: 0 4px 10px rgba(0,0,0,0.05); outline: 2px solid #000; }
+        .upload-zone { border: 2px dashed #d1dce0; border-radius: 24px; padding: 40px 20px; text-align: center; background: #fbfcfc; display: none; }
+        .upload-zone.active { display: block; }
+        .upload-icon { width: 60px; height: 60px; border-radius: 18px; display: flex; align-items: center; justify-content: center; margin: 0 auto 15px; color: white; font-size: 24px; }
+        .tap-link { color: var(--primary); font-weight: 600; font-size: 14px; text-decoration: none; display: flex; align-items: center; justify-content: center; gap: 5px; margin-top: 10px; }
+
+        /* --- VOICE COMPANION SCREEN --- */
+        .chat-container { display: flex; flex-direction: column; gap: 20px; flex: 1; }
+        .bubble { padding: 16px; border-radius: 20px; max-width: 85%; font-size: 14px; line-height: 1.5; box-shadow: 0 4px 10px rgba(0,0,0,0.03); }
+        .ai-bubble { background: white; align-self: flex-start; border-bottom-left-radius: 4px; }
+        .ai-label { font-size: 11px; color: var(--primary); font-weight: 700; margin-bottom: 5px; display: flex; align-items: center; gap: 5px; }
+        .user-bubble { background: var(--primary); color: white; align-self: flex-end; border-bottom-right-radius: 4px; }
+        .mic-panel { background: white; border-radius: 30px; padding: 30px 20px; margin-top: 20px; text-align: center; box-shadow: 0 -10px 20px rgba(0,0,0,0.02); }
+        .big-mic { width: 70px; height: 70px; background: #4db6ac; border: 4px solid #2d3436; border-radius: 50%; color: white; font-size: 28px; cursor: pointer; margin-top: 10px; }
+
+        /* --- MIND GAMES SCREEN --- */
+        .games-hero { background: var(--accent-purple); border-radius: 28px; padding: 24px; color: white; margin-bottom: 30px; position: relative; }
+        .games-hero .badge { color: white; opacity: 0.9; margin-bottom: 12px; }
+        .games-hero h2 { font-size: 22px; margin-bottom: 8px; }
+        .games-hero p { font-size: 13px; opacity: 0.85; margin-bottom: 20px; width: 80%; }
+        .btn-game-start { background: rgba(255,255,255,0.2); border: none; padding: 12px 24px; border-radius: 14px; color: white; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 8px; }
+        .games-section-title { font-size: 16px; font-weight: 700; color: var(--text-main); margin-bottom: 15px; }
+        .game-list { display: flex; flex-direction: column; gap: 15px; padding-bottom: 20px; }
+        .game-card { background: white; padding: 18px; border-radius: 22px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 4px 10px rgba(0,0,0,0.02); cursor: pointer; }
+        .game-info { display: flex; align-items: center; gap: 15px; }
+        .game-icon { width: 45px; height: 45px; border-radius: 14px; display: flex; align-items: center; justify-content: center; color: white; font-size: 18px; }
+        .game-text h4 { font-size: 15px; color: var(--text-main); margin-bottom: 2px; }
+        .game-text p { font-size: 12px; color: var(--text-sub); }
+        .diff-tag { font-size: 10px; font-weight: 700; padding: 4px 10px; border-radius: 20px; text-transform: capitalize; }
+        .diff-easy { background: #e8f5e9; color: #2e7d32; }
+        .diff-medium { background: #fff3e0; color: #ef6c00; }
+        .diff-hard { background: #ffebee; color: #c62828; }
+
+        /* --- BOTTOM NAV --- */
+        .bottom-nav { position: absolute; bottom: 0; left: 0; right: 0; height: 75px; background: white; display: flex; justify-content: space-around; align-items: center; border-top: 1px solid #f0f0f0; z-index: 100; }
+        .nav-tab { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; color: #bdc3c7; font-size: 10px; text-decoration: none; cursor: pointer; }
+        .nav-tab.active { color: var(--primary); }
+        .nav-tab i { font-size: 22px; }
+        .nav-tab.scan-active i { background: #e0f2f1; padding: 10px; border-radius: 12px; color: var(--primary); }
+
+        .avatar-container {
+    position: relative;
+    cursor: pointer;
+}
+
+/* Dropdown box */
+.dropdown-menu {
+    position: absolute;
+    top: 55px;
+    right: 0;
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+    width: 140px;
+    display: none;
+    overflow: hidden;
+    z-index: 200;
+}
+
+/* Show dropdown */
+.dropdown-menu.show {
+    display: block;
+}
+
+/* Dropdown item */
+.dropdown-item {
+    width: 100%;
+    padding: 12px 16px;
+    border: none;
+    background: none;
+    text-align: left;
+    font-size: 14px;
+    color: #2d3436;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.dropdown-item:hover {
+    background: #f5f5f5;
+}
+
+.tap-upload {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+
+    padding: 12px 18px;
+
+    background: #ffffff;
+    color: #2d3436;
+
+    border: 1.5px solid #dfe6e9;
+    border-radius: 12px;
+
+    font-size: 14px;
+    font-weight: 500;
+
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+/* Icon */
+.tap-upload i {
+    font-size: 14px;
+    color: #3ba9c2;
+}
+
+/* Hover (very subtle) */
+.tap-upload:hover {
+    border-color: #3ba9c2;
+    background: #f7fbfc;
+}
+
+/* Click */
+.tap-upload:active {
+    transform: scale(0.97);
+}
+
+@media (max-width: 768px) {
+    body {
+        padding: 0;
+        align-items: stretch;
+    }
+
+    .app-shell {
+        width: 100%;
+        height: 100vh;
+        border-radius: 0;
+        box-shadow: none;
+    }
+}
+
+    </style>
+</head>
+<body>
+
+
+    
+<div class="app-shell">
+    
+    <main id="home-screen" class="screen active padding-wrap">
+        <header class="header">
+    <div class="user-greeting">
+        <p>Welcome back,</p>
+        <h1>{{ user.profile.name }} 👋</h1>
+    </div>
+
+    <!-- Avatar + Dropdown -->
+    <div class="avatar-container">
+        <div class="avatar" onclick="toggleDropdown()">
+            {{ user.profile.name|slice:":1" }}
+        </div>
+
+        <!-- Dropdown Menu -->
+        <div id="dropdownMenu" class="dropdown-menu">
+            <form method="POST" action="/logout/">
+                {% csrf_token %}
+                <button type="submit" class="dropdown-item">
+                    <i class="fa-solid fa-right-from-bracket"></i> Logout
+                </button>
+            </form>
+        </div>
+    </div>
+</header>
+
+
+        <section class="hero-card">
+            <div class="badge"><i class="fa-regular fa-shield"></i> Daily Check-in</div>
+            <h2>How are you feeling today?</h2>
+            <p>Start a voice session to check in with your AI companion</p>
+            <button class="btn-action" onclick="showScreen('voice-screen')">
+                <i class="fa-solid fa-microphone"></i> Start Session
+            </button>
+            <img src="https://img.icons8.com/plasticine/200/brain.png" class="brain-deco" alt="Brain">
+        </section>
+        <div class="status-strip">
+            <div class="status-label"><span>Current Risk Level</span><h3>Low Risk</h3></div>
+            <div class="indicator"><div class="dot active"></div><div class="dot"></div><div class="dot"></div></div>
+        </div>
+        <div class="menu-grid">
+            <div class="menu-item" onclick="showScreen('voice-screen')">
+                <div class="icon-wrap" style="background:#4db6ac"><i class="fa-solid fa-microphone"></i></div>
+                <h4>Voice Interaction</h4><p>Talk with your AI companion</p>
+                <i class="fa-solid fa-chevron-right chevron"></i>
+            </div>
+            <div class="menu-item" onclick="showScreen('scan-screen')">
+                <div class="icon-wrap" style="background:var(--accent-orange)"><i class="fa-solid fa-brain"></i></div>
+                <h4>Dementia Scan</h4><p>Audio & MRI analysis</p>
+                <i class="fa-solid fa-chevron-right chevron"></i>
+            </div>
+            <div class="menu-item" onclick="showScreen('progress-screen')">
+                <div class="icon-wrap" style="background:#4f9da6"><i class="fa-solid fa-chart-simple"></i></div>
+                <h4>Dashboard</h4><p>Track weekly progress</p>
+                <i class="fa-solid fa-chevron-right chevron"></i>
+            </div>
+            <div class="menu-item" onclick="showScreen('games-screen')">
+                <div class="icon-wrap" style="background:var(--accent-purple)"><i class="fa-solid fa-gamepad"></i></div>
+                <h4>Mind Games</h4><p>Audio-based brain exercises</p>
+                <i class="fa-solid fa-chevron-right chevron"></i>
+            </div>
+        </div>
+    </main>
+
+    <main id="progress-screen" class="screen padding-wrap">
+        <div class="back-nav">
+            <button class="back-btn" onclick="showScreen('home-screen')"><i class="fa-solid fa-arrow-left"></i></button>
+            <div><h1 style="font-size: 22px;">Progress Dashboard</h1><p style="font-size: 14px; color: var(--text-sub);">Weekly improvement tracking</p></div>
+        </div>
+        <div class="dash-risk-card">
+            <div class="risk-info">
+                <div class="risk-icon-circle"><i class="fa-solid fa-bullseye"></i></div>
+                <div><p style="font-size: 11px; color: var(--text-sub); text-transform: uppercase;">Overall Risk Level</p><h3 style="color:#27ae60; font-size: 16px;">Low Risk</h3></div>
+            </div>
+            <div class="risk-percentage"><i class="fa-solid fa-arrow-trend-up"></i> +12%</div>
+        </div>
+        <div class="stat-row">
+            <div class="stat-box"><i class="fa-solid fa-brain"></i><h4>78%</h4><p>Cognitive</p></div>
+            <div class="stat-box"><i class="fa-solid fa-bolt"></i><h4>24</h4><p>Sessions</p></div>
+            <div class="stat-box"><i class="fa-solid fa-calendar-check"></i><h4>7 days</h4><p>Streak</p></div>
+        </div>
+        <div class="chart-wrapper"><h4>Weekly Cognitive Score</h4><div class="canvas-container"><canvas id="scoreLineChart"></canvas></div></div>
+        <div class="chart-wrapper"><h4>Games Completed</h4><div class="canvas-container"><canvas id="gamesBarChart"></canvas></div></div>
+    </main>
+
+    <main id="scan-screen" class="screen padding-wrap">
+        <div class="back-nav">
+            <button class="back-btn" onclick="showScreen('home-screen')"><i class="fa-solid fa-arrow-left"></i></button>
+            <div><h1 style="font-size: 22px;">Dementia Scan</h1><p style="font-size: 14px; color: var(--text-sub);">Audio & MRI analysis</p></div>
+        </div>
+        <div class="toggle-container">
+            <button id="toggle-voice" class="toggle-btn active" onclick="switchScanMode('voice')"><i class="fa-solid fa-microphone"></i> Voice Analysis</button>
+            <button id="toggle-mri" class="toggle-btn" onclick="switchScanMode('mri')"><i class="fa-regular fa-image"></i> MRI Scan</button>
+        </div>
+        <div id="voice-view" class="upload-zone active">
+    <div class="upload-icon" style="background: var(--primary);">
+        <i class="fa-solid fa-microphone"></i>
+    </div>
+
+    <h3>Upload Voice Recording</h3>
+
+    <form id="audioForm" enctype="multipart/form-data">
+        {% csrf_token %}
+
+        <input type="file" name="audio" id="audioInput" accept=".wav" hidden>
+
+        <button type="button" class="tap-upload"
+    onclick="document.getElementById('audioInput').click()">
+    <i class="fa-solid fa-upload"></i>
+    <span>Upload audio</span>
+</button>
+    </form>
+
+
+
+    <!-- RESULT -->
+    <div id="resultBox" style="
+        margin-top:15px;
+        padding:12px;
+        border-radius:12px;
+        background:#f2fcf8;
+        font-weight:600;">
+    </div>
+
+</div>
+        <div id="mri-view" class="upload-zone">
+    <div class="upload-icon" style="background: var(--accent-orange);">
+        <i class="fa-regular fa-image"></i>
+    </div>
+
+    <h3>Upload MRI Image</h3>
+
+    <form id="mriForm" enctype="multipart/form-data">
+        {% csrf_token %}
+
+        <input type="file" name="mri" id="mriInput" accept="image/*" hidden>
+
+        <button type="button" class="tap-upload"
+            onclick="document.getElementById('mriInput').click()">
+            <i class="fa-solid fa-upload"></i> Tap to upload
+        </button>
+
+        
+    </form>
+
+    <!-- RESULT -->
+    <div id="mriResultBox" style="
+        margin-top:15px;
+        padding:12px;
+        border-radius:12px;
+        background:#fcf9f5;
+        font-weight:600;">
+    </div>
+</div>
+
+
+    </main>
+
+    <main id="voice-screen" class="screen padding-wrap">
+        <div class="back-nav">
+            <button class="back-btn" onclick="showScreen('home-screen')"><i class="fa-solid fa-arrow-left"></i></button>
+            <div>
+                <h1 style="font-size: 22px;">Voice Companion</h1>
+                <p id="voiceStatus" style="font-size: 13px; color: var(--text-sub);">Connecting...</p>
+            </div>
+        </div>
+        <div class="chat-container" id="chatContainer">
+            <div class="bubble ai-bubble">
+                <div class="ai-label"><i class="fa-solid fa-volume-high"></i> AI Companion</div>
+                Hello Sarah! How are you today?
+            </div>
+        </div>
+        <div class="mic-panel">
+            <div style="display:flex; gap:10px; margin-bottom:12px;">
+                <input id="voiceTextInput" type="text" placeholder="Type a command" style="flex:1; border:1px solid #d7e1e5; border-radius:12px; padding:10px 12px;" />
+                <button type="button" onclick="sendVoiceText()" style="border:none; border-radius:12px; background:var(--primary); color:white; padding:10px 14px;">Send</button>
+            </div>
+            <div style="display:flex; justify-content:flex-end; margin-bottom:10px;">
+                <button id="speakerToggleBtn" type="button" onclick="toggleSpeaker()" style="border:none; border-radius:12px; background:#e8f3f6; color:#2d3436; padding:8px 12px; font-size:12px; font-weight:600;">
+                    <i class="fa-solid fa-volume-high"></i> Speaker On
+                </button>
+            </div>
+            <button id="voiceMicBtn" class="big-mic" type="button" onclick="toggleVoiceRecording()"><i class="fa-solid fa-microphone"></i></button>
+        </div>
+    </main>
+
+    <main id="games-screen" class="screen padding-wrap">
+        <div class="back-nav">
+            <button class="back-btn" onclick="showScreen('home-screen')"><i class="fa-solid fa-arrow-left"></i></button>
+            <div><h1 style="font-size: 22px;">Mind Games</h1><p style="font-size: 14px; color: var(--text-sub);">Audio-based brain exercises</p></div>
+        </div>
+        <div id="gamesMenu">
+        <section class="games-hero">
+            <div class="badge"><i class="fa-solid fa-headphones"></i> Daily Challenge</div>
+            <h2>Audio Memory Quest</h2><p>Complete today's set of 3 games to maintain your streak!</p>
+            <button class="btn-game-start" type="button" onclick="startGame('word-recall')"><i class="fa-solid fa-play"></i> Start Challenge</button>
+        </section>
+        <h3 class="games-section-title">All Games</h3>
+        <div class="game-list">
+            <div class="game-card" onclick="startGame('word-recall')"><div class="game-info"><div class="game-icon" style="background:#4db6ac;"><i class="fa-solid fa-volume-high"></i></div><div class="game-text"><h4>Word Recall</h4><p>Listen & repeat words</p></div></div><span class="diff-tag diff-easy">Easy</span></div>
+            <div class="game-card" onclick="startGame('sound-match')"><div class="game-info"><div class="game-icon" style="background:#ff8a65;"><i class="fa-solid fa-music"></i></div><div class="game-text"><h4>Sound Match</h4><p>Match sounds to images</p></div></div><span class="diff-tag diff-easy">Easy</span></div>
+            <div class="game-card" onclick="startGame('story-sequence')"><div class="game-info"><div class="game-icon" style="background:#9575cd;"><i class="fa-solid fa-message"></i></div><div class="game-text"><h4>Story Sequence</h4><p>Order story events</p></div></div><span class="diff-tag diff-medium">Medium</span></div>
+            <div class="game-card" onclick="startGame('pattern-repeat')"><div class="game-info"><div class="game-icon" style="background:#4f9da6;"><i class="fa-solid fa-arrows-rotate"></i></div><div class="game-text"><h4>Pattern Repeat</h4><p>Repeat audio patterns</p></div></div><span class="diff-tag diff-hard">Hard</span></div>
+        </div>
+        </div>
+
+        <div id="gameplayPanel" style="display:none;">
+            <div class="how-it-works" style="margin-top:0; margin-bottom:14px; display:flex; align-items:center; justify-content:space-between;">
+                <h4 id="gameplayTitle" style="margin:0;">Game</h4>
+                <button type="button" class="back-btn" onclick="showGamesMenu()"><i class="fa-solid fa-arrow-left"></i></button>
+            </div>
+            <div id="gameplayBody"></div>
+        </div>
+    </main>
+
+    <nav class="bottom-nav">
+        <div class="nav-tab active" onclick="showScreen('home-screen')"><i class="fa-solid fa-house"></i><span>Home</span></div>
+        <div class="nav-tab" onclick="showScreen('voice-screen')"><i class="fa-solid fa-microphone"></i><span>Voice</span></div>
+        <div class="nav-tab" id="nav-scan" onclick="showScreen('scan-screen')"><i class="fa-solid fa-brain"></i><span>Scan</span></div>
+        <div class="nav-tab" id="nav-progress" onclick="showScreen('progress-screen')"><i class="fa-solid fa-chart-line"></i><span>Progress</span></div>
+        <div class="nav-tab" id="nav-games" onclick="showScreen('games-screen')"><i class="fa-solid fa-gamepad"></i><span>Games</span></div>
+    </nav>
+</div>
+
+<script>
+    let activeCharts = [];
+
+    function showScreen(id) {
+        document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+        document.getElementById(id).classList.add('active');
+
+        document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active', 'scan-active'));
+        if (id === 'home-screen') document.querySelectorAll('.nav-tab')[0].classList.add('active');
+        if (id === 'voice-screen') {
+            document.querySelectorAll('.nav-tab')[1].classList.add('active');
+            initVoiceAgent();
+        }
+        if (id === 'scan-screen') document.getElementById('nav-scan').classList.add('active', 'scan-active');
+        if (id === 'progress-screen') {
+            document.getElementById('nav-progress').classList.add('active');
+            initProgressCharts();
+        }
+        if (id === 'games-screen') {
+            document.getElementById('nav-games').classList.add('active');
+            showGamesMenu();
+        }
+    }
+
+    function switchScanMode(mode) {
+        document.getElementById('toggle-voice').classList.toggle('active', mode === 'voice');
+        document.getElementById('toggle-mri').classList.toggle('active', mode === 'mri');
+        document.getElementById('voice-view').classList.toggle('active', mode === 'voice');
+        document.getElementById('mri-view').classList.toggle('active', mode === 'mri');
+    }
+
+    function toggleDropdown() {
+        document.getElementById('dropdownMenu').classList.toggle('show');
+    }
+
+    document.addEventListener('click', function (event) {
+        const dropdown = document.getElementById('dropdownMenu');
+        const avatar = document.querySelector('.avatar');
+        if (!avatar.contains(event.target) && !dropdown.contains(event.target)) {
+            dropdown.classList.remove('show');
+        }
+    });
+
+    document.getElementById('audioInput').addEventListener('change', function () {
+        if (!this.files || !this.files[0]) return;
+        const formData = new FormData();
+        formData.append('audio', this.files[0]);
+
+        fetch('/audio-scan/', {
+            method: 'POST',
+            headers: { 'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value },
+            body: formData,
+        })
+        .then(response => response.json())
+        .then(data => {
+            document.getElementById('resultBox').innerHTML = '🧠 Result: ' + (data.result || '-') + '<br>Confidence: ' + (data.confidence ?? '-');
+        })
+        .catch(console.error);
+    });
+
+    document.getElementById('mriInput').addEventListener('change', function () {
+        if (!this.files || !this.files[0]) return;
+        const formData = new FormData();
+        formData.append('mri', this.files[0]);
+
+        fetch('/mri-scan/', {
+            method: 'POST',
+            headers: { 'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value },
+            body: formData,
+        })
+        .then(response => response.json())
+        .then(data => {
+            document.getElementById('mriResultBox').innerHTML = 'MRI Result: ' + (data.result || '-') + '<br>Confidence: ' + (data.confidence ?? '-');
+        })
+        .catch(console.error);
+    });
+
+    function initProgressCharts() {
+        fetch('/dashboard-data/')
+        .then(res => res.json())
+        .then(data => {
+            document.querySelector('.dash-risk-card h3').innerText = data.risk + ' Risk';
+            document.querySelectorAll('.stat-box h4')[1].innerText = data.sessions;
+            document.querySelectorAll('.stat-box h4')[2].innerText = data.streak + ' days';
+
+            activeCharts.forEach(chart => chart.destroy());
+            activeCharts = [];
+
+            const lineCtx = document.getElementById('scoreLineChart').getContext('2d');
+            activeCharts.push(new Chart(lineCtx, {
+                type: 'line',
+                data: {
+                    labels: data.labels,
+                    datasets: [{ data: data.weekly_scores, borderColor: '#3ba9c2', fill: true, tension: 0.4, pointRadius: 0 }],
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: { y: { display: false }, x: { grid: { display: false } } },
+                },
+            }));
+
+            const barCtx = document.getElementById('gamesBarChart').getContext('2d');
+            activeCharts.push(new Chart(barCtx, {
+                type: 'bar',
+                data: {
+                    labels: data.labels,
+                    datasets: [{ data: data.weekly_scores.map(v => Math.max(1, Math.round(v))), backgroundColor: '#9575cd', borderRadius: 8 }],
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: { y: { display: false }, x: { grid: { display: false } } },
+                },
+            }));
+        });
+    }
+
+    const voiceState = {
+        ws: null,
+        isRecording: false,
+        audioContext: null,
+        processorNode: null,
+        sourceNode: null,
+        silentGainNode: null,
+        micStream: null,
+        connectedOnce: false,
+        speechDetected: false,
+        lastSpeechAt: 0,
+        silenceRmsThreshold: 0.012,
+        autoStopSilenceMs: 1400,
+        ttsFallbackTimer: null,
+        pendingTtsText: '',
+        speakerEnabled: true,
+        backendAudioEnabled: false,
+        processingTimer: null,
+    };
+
+    function toggleSpeaker() {
+        voiceState.speakerEnabled = !voiceState.speakerEnabled;
+        const btn = document.getElementById('speakerToggleBtn');
+        if (!btn) return;
+        if (voiceState.speakerEnabled) {
+            btn.innerHTML = '<i class="fa-solid fa-volume-high"></i> Speaker On';
+        } else {
+            btn.innerHTML = '<i class="fa-solid fa-volume-xmark"></i> Speaker Off';
+            cancelTtsFallback();
+            if ('speechSynthesis' in window) {
+                window.speechSynthesis.cancel();
+            }
+        }
+    }
+
+    function beginProcessingState(message) {
+        if (voiceState.processingTimer) {
+            clearTimeout(voiceState.processingTimer);
+        }
+        setVoiceStatus(message || 'Processing your input...');
+        voiceState.processingTimer = setTimeout(() => {
+            setVoiceStatus('Connected');
+            voiceState.processingTimer = null;
+        }, 7000);
+    }
+
+    function clearProcessingState() {
+        if (voiceState.processingTimer) {
+            clearTimeout(voiceState.processingTimer);
+            voiceState.processingTimer = null;
+        }
+        setVoiceStatus('Connected');
+    }
+
+    function cancelTtsFallback() {
+        if (voiceState.ttsFallbackTimer) {
+            clearTimeout(voiceState.ttsFallbackTimer);
+            voiceState.ttsFallbackTimer = null;
+        }
+        voiceState.pendingTtsText = '';
+    }
+
+    function speakWithBrowserTts(text) {
+        if (!voiceState.speakerEnabled || !('speechSynthesis' in window) || !text) return;
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.rate = 0.95;
+        utterance.pitch = 1.0;
+
+        const voices = window.speechSynthesis.getVoices();
+        const malePattern = /(david|mark|daniel|james|guy|thomas|male)/i;
+        const maleVoice = voices.find(v => malePattern.test(v.name))
+            || voices.find(v => (v.lang || '').toLowerCase().startsWith('en'))
+            || null;
+        if (maleVoice) {
+            utterance.voice = maleVoice;
+        }
+
+        window.speechSynthesis.speak(utterance);
+    }
+
+    function scheduleTtsFallback(text) {
+        if (!voiceState.speakerEnabled || !text) return;
+        voiceState.pendingTtsText = text;
+        if (voiceState.ttsFallbackTimer) {
+            clearTimeout(voiceState.ttsFallbackTimer);
+        }
+        voiceState.ttsFallbackTimer = setTimeout(() => {
+            speakWithBrowserTts(voiceState.pendingTtsText);
+            voiceState.ttsFallbackTimer = null;
+            voiceState.pendingTtsText = '';
+        }, 250);
+    }
+
+    function wsUrl() {
+        const scheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
+        return `${scheme}://${window.location.host}/ws/voice/`;
+    }
+
+    function setVoiceStatus(text) {
+        const el = document.getElementById('voiceStatus');
+        if (el) el.textContent = text;
+    }
+
+    function appendChatBubble(text, isUser) {
+        const chat = document.getElementById('chatContainer');
+        if (!chat || !text) return;
+
+        const bubble = document.createElement('div');
+        bubble.className = isUser ? 'bubble user-bubble' : 'bubble ai-bubble';
+        if (!isUser) {
+            bubble.innerHTML = '<div class="ai-label"><i class="fa-solid fa-volume-high"></i> AI Companion</div>' + text;
+        } else {
+            bubble.textContent = text;
+        }
+        chat.appendChild(bubble);
+        chat.scrollTop = chat.scrollHeight;
+    }
+
+    function initVoiceAgent() {
+        if (voiceState.ws && (voiceState.ws.readyState === WebSocket.OPEN || voiceState.ws.readyState === WebSocket.CONNECTING)) {
+            return;
+        }
+        setVoiceStatus('Connecting...');
+        voiceState.ws = new WebSocket(wsUrl());
+
+        voiceState.ws.onopen = () => {
+            voiceState.connectedOnce = true;
+            setVoiceStatus('Connected');
+        };
+
+        voiceState.ws.onmessage = (event) => {
+            if (typeof event.data === 'string') {
+                const data = JSON.parse(event.data);
+                if (data.type === 'transcript' && data.is_final) appendChatBubble(data.text, true);
+                if (data.type === 'response_chunk') {
+                    appendChatBubble(data.text, false);
+                    clearProcessingState();
+                    scheduleTtsFallback(data.text);
+                }
+                if (data.type === 'system' && data.message) setVoiceStatus(data.message);
+                if (data.type === 'decision' && data.intent) {
+                    setVoiceStatus(`Intent: ${data.intent}`);
+                }
+                if (data.type === 'status') setVoiceStatus(data.message || 'Connected');
+            } else {
+                if (!voiceState.backendAudioEnabled) {
+                    return;
+                }
+                cancelTtsFallback();
+                const blob = event.data instanceof Blob ? event.data : new Blob([event.data], { type: 'audio/mpeg' });
+                const url = URL.createObjectURL(blob);
+                const audio = new Audio(url);
+                audio.onended = () => URL.revokeObjectURL(url);
+                audio.play().catch(() => {
+                    URL.revokeObjectURL(url);
+                    if (voiceState.pendingTtsText) {
+                        speakWithBrowserTts(voiceState.pendingTtsText);
+                    }
+                });
+            }
+        };
+
+        voiceState.ws.onclose = () => {
+            setVoiceStatus('Disconnected. Reconnecting...');
+            if (document.getElementById('voice-screen').classList.contains('active')) {
+                setTimeout(initVoiceAgent, 1500);
+            }
+        };
+
+        voiceState.ws.onerror = () => setVoiceStatus('Connection error');
+    }
+
+    async function toggleVoiceRecording() {
+        if (voiceState.isRecording) {
+            stopVoiceRecording();
+            return;
+        }
+
+        if (!voiceState.ws || voiceState.ws.readyState !== WebSocket.OPEN) {
+            initVoiceAgent();
+            alert('Voice channel is still connecting. Please try again in a second.');
+            return;
+        }
+
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            voiceState.micStream = stream;
+            voiceState.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            voiceState.sourceNode = voiceState.audioContext.createMediaStreamSource(stream);
+            voiceState.processorNode = voiceState.audioContext.createScriptProcessor(4096, 1, 1);
+            voiceState.silentGainNode = voiceState.audioContext.createGain();
+            voiceState.silentGainNode.gain.value = 0;
+
+            voiceState.sourceNode.connect(voiceState.processorNode);
+            voiceState.processorNode.connect(voiceState.silentGainNode);
+            voiceState.silentGainNode.connect(voiceState.audioContext.destination);
+
+            voiceState.ws.send(JSON.stringify({ type: 'start_recording' }));
+            voiceState.speechDetected = false;
+            voiceState.lastSpeechAt = Date.now();
+            voiceState.processorNode.onaudioprocess = (event) => {
+                if (!voiceState.isRecording || !voiceState.ws || voiceState.ws.readyState !== WebSocket.OPEN) return;
+                const input = event.inputBuffer.getChannelData(0);
+
+                let sumSquares = 0;
+                for (let i = 0; i < input.length; i += 1) {
+                    const v = input[i];
+                    sumSquares += v * v;
+                }
+                const rms = Math.sqrt(sumSquares / input.length);
+                const now = Date.now();
+                if (rms >= voiceState.silenceRmsThreshold) {
+                    voiceState.speechDetected = true;
+                    voiceState.lastSpeechAt = now;
+                }
+
+                if (voiceState.speechDetected && (now - voiceState.lastSpeechAt) > voiceState.autoStopSilenceMs) {
+                    stopVoiceRecording(true);
+                    return;
+                }
+
+                const downsampled = downsampleBuffer(input, voiceState.audioContext.sampleRate, 16000);
+                voiceState.ws.send(floatTo16BitPCM(downsampled));
+            };
+
+            voiceState.isRecording = true;
+            document.getElementById('voiceMicBtn').innerHTML = '<i class="fa-solid fa-stop"></i>';
+            setVoiceStatus('Recording...');
+        } catch {
+            setVoiceStatus('Microphone unavailable');
+        }
+    }
+
+    function stopVoiceRecording(autoStopped = false) {
+        const hadSpeech = voiceState.speechDetected;
+        voiceState.isRecording = false;
+        if (voiceState.processorNode) {
+            voiceState.processorNode.disconnect();
+            voiceState.processorNode.onaudioprocess = null;
+            voiceState.processorNode = null;
+        }
+        if (voiceState.sourceNode) {
+            voiceState.sourceNode.disconnect();
+            voiceState.sourceNode = null;
+        }
+        if (voiceState.silentGainNode) {
+            voiceState.silentGainNode.disconnect();
+            voiceState.silentGainNode = null;
+        }
+        if (voiceState.micStream) {
+            voiceState.micStream.getTracks().forEach(track => track.stop());
+            voiceState.micStream = null;
+        }
+        if (voiceState.audioContext) {
+            voiceState.audioContext.close();
+            voiceState.audioContext = null;
+        }
+
+        if (hadSpeech && voiceState.ws && voiceState.ws.readyState === WebSocket.OPEN) {
+            voiceState.ws.send(JSON.stringify({ type: 'stop_recording' }));
+        }
+
+        document.getElementById('voiceMicBtn').innerHTML = '<i class="fa-solid fa-microphone"></i>';
+        if (hadSpeech) {
+            beginProcessingState(autoStopped ? 'Pause detected, processing...' : 'Processing your input...');
+        } else {
+            setVoiceStatus('Connected');
+        }
+        voiceState.speechDetected = false;
+        voiceState.lastSpeechAt = 0;
+    }
+
+    function sendVoiceText() {
+        const input = document.getElementById('voiceTextInput');
+        const text = (input.value || '').trim();
+        if (!text) return;
+        if (!voiceState.ws || voiceState.ws.readyState !== WebSocket.OPEN) {
+            initVoiceAgent();
+            setVoiceStatus('Connecting... tap Send again in a second');
+            appendChatBubble('Connecting to voice agent... please tap Send again in a second.', false);
+            return;
+        }
+        appendChatBubble(text, true);
+        voiceState.ws.send(JSON.stringify({ type: 'final_transcript', text }));
+        input.value = '';
+    }
+
+    document.getElementById('voiceTextInput').addEventListener('keydown', function (event) {
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            sendVoiceText();
+        }
+    });
+
+    function downsampleBuffer(input, inputRate, outputRate) {
+        if (inputRate === outputRate) return input;
+        const ratio = inputRate / outputRate;
+        const newLength = Math.floor(input.length / ratio);
+        const result = new Float32Array(newLength);
+        for (let i = 0; i < newLength; i += 1) result[i] = input[Math.floor(i * ratio)];
+        return result;
+    }
+
+    function floatTo16BitPCM(float32Array) {
+        const output = new Int16Array(float32Array.length);
+        for (let i = 0; i < float32Array.length; i += 1) {
+            const sample = Math.max(-1, Math.min(1, float32Array[i]));
+            output[i] = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
+        }
+        return output.buffer;
+    }
+
+    const gameState = {
+        current: null,
+        memory: { cards: [], flipped: [], moves: 0, matches: 0 },
+        sequence: { sequence: [], user: [], active: null, status: 'idle' },
+        sound: { level: 1, grid: [], target: -1, gameOver: false },
+        story: { order: [], next: 1, done: false },
+    };
+
+    function showGamesMenu() {
+        document.getElementById('gamesMenu').style.display = 'block';
+        document.getElementById('gameplayPanel').style.display = 'none';
+    }
+
+    function startGame(gameId) {
+        gameState.current = gameId;
+        document.getElementById('gamesMenu').style.display = 'none';
+        document.getElementById('gameplayPanel').style.display = 'block';
+
+        if (gameId === 'word-recall') initWordRecall();
+        if (gameId === 'pattern-repeat') initPatternRepeat();
+        if (gameId === 'sound-match') initSoundMatch();
+        if (gameId === 'story-sequence') initStorySequence();
+    }
+
+    function setGameView(title, bodyHtml) {
+        document.getElementById('gameplayTitle').textContent = title;
+        document.getElementById('gameplayBody').innerHTML = bodyHtml;
+    }
+
+    function initWordRecall() {
+        const icons = ['🍎', '🍌', '🍇', '🍓', '🍒', '🍍'];
+        const cards = [...icons, ...icons]
+            .sort(() => Math.random() - 0.5)
+            .map((value, index) => ({ id: index, value, flipped: false, matched: false }));
+        gameState.memory = { cards, flipped: [], moves: 0, matches: 0 };
+        renderWordRecall();
+    }
+
+    function clickWordCard(index) {
+        const m = gameState.memory;
+        if (m.flipped.length === 2 || m.cards[index].flipped || m.cards[index].matched) return;
+        m.cards[index].flipped = true;
+        m.flipped.push(index);
+        renderWordRecall();
+        if (m.flipped.length === 2) {
+            m.moves += 1;
+            const [a, b] = m.flipped;
+            setTimeout(() => {
+                if (m.cards[a].value === m.cards[b].value) {
+                    m.cards[a].matched = true;
+                    m.cards[b].matched = true;
+                    m.matches += 1;
+                } else {
+                    m.cards[a].flipped = false;
+                    m.cards[b].flipped = false;
+                }
+                m.flipped = [];
+                renderWordRecall();
+            }, 500);
+        }
+    }
+
+    function renderWordRecall() {
+        const m = gameState.memory;
+        setGameView('Word Recall', `
+            <div class="how-it-works" style="margin-top:0;">
+                <p>Moves: <strong>${m.moves}</strong> | Matches: <strong>${m.matches}/6</strong></p>
+            </div>
+            <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-top:12px;">
+                ${m.cards.map((card, i) => `
+                    <button type="button" onclick="clickWordCard(${i})" style="height:62px; border:none; border-radius:12px; font-size:26px; background:${card.flipped || card.matched ? '#ffffff' : '#4db6ac'};">
+                        ${card.flipped || card.matched ? card.value : ''}
+                    </button>
+                `).join('')}
+            </div>
+            ${m.matches === 6 ? '<div class="how-it-works"><h4>Great job!</h4><button type="button" class="btn-action" onclick="initWordRecall()">Play Again</button></div>' : ''}
+        `);
+    }
+
+    function initPatternRepeat() {
+        gameState.sequence = { sequence: [], user: [], active: null, status: 'idle' };
+        renderPatternRepeat();
+    }
+
+    async function startPatternRound() {
+        const s = gameState.sequence;
+        s.sequence.push(Math.floor(Math.random() * 4));
+        s.user = [];
+        s.status = 'playing';
+        renderPatternRepeat();
+        for (const idx of s.sequence) {
+            s.active = idx;
+            renderPatternRepeat();
+            await new Promise(r => setTimeout(r, 350));
+            s.active = null;
+            renderPatternRepeat();
+            await new Promise(r => setTimeout(r, 220));
+        }
+        s.status = 'input';
+        renderPatternRepeat();
+    }
+
+    function clickPattern(index) {
+        const s = gameState.sequence;
+        if (s.status !== 'input') return;
+        s.user.push(index);
+        if (index !== s.sequence[s.user.length - 1]) {
+            s.status = 'failed';
+            renderPatternRepeat();
+            return;
+        }
+        if (s.user.length === s.sequence.length) {
+            s.status = 'success';
+            renderPatternRepeat();
+            setTimeout(startPatternRound, 700);
+            return;
+        }
+        renderPatternRepeat();
+    }
+
+    function renderPatternRepeat() {
+        const s = gameState.sequence;
+        const colors = ['#ef4444', '#3b82f6', '#22c55e', '#eab308'];
+        const active = ['#b91c1c', '#1d4ed8', '#15803d', '#ca8a04'];
+        setGameView('Pattern Repeat', `
+            <div class="how-it-works" style="margin-top:0;">
+                <h4>Level ${s.sequence.length || 1}</h4>
+                <p>${s.status === 'idle' ? 'Watch then repeat the pattern.' : s.status === 'playing' ? 'Watch carefully...' : s.status === 'input' ? 'Your turn.' : s.status === 'failed' ? 'Wrong sequence.' : 'Nice! Next level...'}</p>
+            </div>
+            <div style="display:grid; grid-template-columns:repeat(2,1fr); gap:12px; margin-top:12px;">
+                ${[0,1,2,3].map(i => `<button type="button" onclick="clickPattern(${i})" style="height:88px; border:none; border-radius:18px; background:${s.active === i ? active[i] : colors[i]};"></button>`).join('')}
+            </div>
+            <div style="margin-top:14px; display:flex; gap:10px;">
+                ${s.status === 'idle' ? '<button type="button" class="btn-action" onclick="startPatternRound()">Start Game</button>' : ''}
+                ${s.status === 'failed' ? '<button type="button" class="btn-action" onclick="initPatternRepeat()">Try Again</button>' : ''}
+            </div>
+        `);
+    }
+
+    function initSoundMatch() {
+        gameState.sound = { level: 1, grid: [], target: -1, gameOver: false };
+        nextSoundGrid();
+    }
+
+    function nextSoundGrid() {
+        const sets = [['🔊', '🎵'], ['🎧', '📻'], ['🥁', '🎺'], ['🎹', '🎻']];
+        const set = sets[Math.floor(Math.random() * sets.length)];
+        const size = gameState.sound.level < 4 ? 4 : 9;
+        const grid = Array(size).fill(set[0]);
+        const target = Math.floor(Math.random() * size);
+        grid[target] = set[1];
+        gameState.sound.grid = grid;
+        gameState.sound.target = target;
+        renderSoundMatch();
+    }
+
+    function clickSound(index) {
+        if (gameState.sound.gameOver) return;
+        if (index === gameState.sound.target) {
+            gameState.sound.level += 1;
+            nextSoundGrid();
+        } else {
+            gameState.sound.gameOver = true;
+            renderSoundMatch();
+        }
+    }
+
+    function renderSoundMatch() {
+        const s = gameState.sound;
+        const cols = s.grid.length === 4 ? 'repeat(2,1fr)' : 'repeat(3,1fr)';
+        setGameView('Sound Match', `
+            <div class="how-it-works" style="margin-top:0;">
+                <h4>Level ${s.level}</h4>
+                <p>Find the odd audio symbol.</p>
+            </div>
+            <div style="display:grid; grid-template-columns:${cols}; gap:10px; margin-top:12px;">
+                ${s.grid.map((emoji, i) => `<button type="button" onclick="clickSound(${i})" style="height:74px; border:none; border-radius:14px; background:#ffffff; font-size:30px;">${emoji}</button>`).join('')}
+            </div>
+            ${s.gameOver ? '<div class="how-it-works"><h4>Game Over</h4><button type="button" class="btn-action" onclick="initSoundMatch()">Try Again</button></div>' : ''}
+        `);
+    }
+
+    function initStorySequence() {
+        const order = [1,2,3,4,5,6,7,8].sort(() => Math.random() - 0.5);
+        gameState.story = { order, next: 1, done: false };
+        renderStorySequence();
+    }
+
+    function clickStory(n) {
+        const s = gameState.story;
+        if (s.done) return;
+        if (n === s.next) {
+            s.next += 1;
+            if (s.next > 8) s.done = true;
+        }
+        renderStorySequence();
+    }
+
+    function renderStorySequence() {
+        const s = gameState.story;
+        setGameView('Story Sequence', `
+            <div class="how-it-works" style="margin-top:0;">
+                <h4>Tap story events in order</h4>
+                <p>Next event: ${s.done ? 'Complete' : s.next}</p>
+            </div>
+            <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-top:12px;">
+                ${s.order.map(n => `<button type="button" onclick="clickStory(${n})" style="height:60px; border:none; border-radius:12px; background:${n < s.next ? '#4db6ac' : '#ffffff'}; color:${n < s.next ? '#fff' : '#2d3436'}; font-weight:700;">${n}</button>`).join('')}
+            </div>
+            ${s.done ? '<div class="how-it-works"><h4>Sequence complete!</h4><button type="button" class="btn-action" onclick="initStorySequence()">Play Again</button></div>' : ''}
+        `);
+    }
+</script>
+
+</body>
+</html>

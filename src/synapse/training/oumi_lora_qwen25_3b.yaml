@@ -1,0 +1,38 @@
+run_name: qwen25-3b-intent-lora
+output_dir: ./artifacts/qwen25-3b-intent-lora
+
+model:
+  name_or_path: Qwen/Qwen2.5-3B-Instruct
+  trust_remote_code: true
+
+data:
+  train_file: ./data/dataset_train.jsonl
+  eval_file: ./data/dataset_eval.jsonl
+  chat_template: true
+
+training:
+  method: lora
+  num_train_epochs: 3
+  per_device_train_batch_size: 2
+  gradient_accumulation_steps: 4
+  learning_rate: 2e-5
+  lr_scheduler_type: cosine
+  warmup_ratio: 0.03
+  logging_steps: 10
+  save_steps: 200
+  eval_steps: 200
+  bf16: false
+  fp16: true
+
+lora:
+  r: 8
+  lora_alpha: 16
+  lora_dropout: 0.05
+  target_modules:
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+    - gate_proj
+    - up_proj
+    - down_proj

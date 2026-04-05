@@ -1,0 +1,8 @@
+[
+  {
+    "id": 0,
+    "text": "i kept my keys on the table | clarification: car key and on the dining table",
+    "entity": "keys",
+    "entity_type": "fact",
+    "confidence": 0.9,
+    "timestamp": 

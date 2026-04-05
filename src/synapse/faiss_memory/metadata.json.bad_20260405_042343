@@ -1,0 +1,8 @@
+[
+  {
+    "id": 0,
+    "text": "I read Harry Potter today",
+    "entity": "book",
+    "entity_type": "fact",
+    "confidence": 0.9,
+    "timestamp": 

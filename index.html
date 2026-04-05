@@ -1,0 +1,695 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CogniCare: Brain Health</title>
+    
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+              display: ['Outfit', 'sans-serif'],
+            },
+          }
+        }
+      }
+    </script>
+
+    <style>
+      .fade-in {
+        animation: fadeIn 0.3s ease-out forwards;
+      }
+
+      .slide-in {
+        animation: slideIn 0.3s ease-out forwards;
+      }
+
+      @keyframes fadeIn {
+        from { opacity: 0; }
+        to { opacity: 1; }
+      }
+
+      @keyframes slideIn {
+        from { opacity: 0; transform: translateX(20px); }
+        to { opacity: 1; transform: translateX(0); }
+      }
+
+      .card-flip {
+        transition: transform 0.6s;
+        transform-style: preserve-3d;
+      }
+
+      .card-flip.flipped {
+        transform: rotateY(180deg);
+      }
+      
+      body {
+        background-color: #f8fafc; /* bg-slate-50 */
+        color: #0f172a; /* text-slate-900 */
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+      }
+    </style>
+  </head>
+  <body class="antialiased">
+    <div id="app" class="max-w-md mx-auto h-screen bg-slate-50 shadow-2xl flex flex-col overflow-hidden relative">
+      <!-- Content will be injected here -->
+    </div>
+
+    <script>
+      /**
+      * Synapse Mind Games: Pure Vanilla JS Implementation (No Build Step)
+       */
+
+      // --- State Management ---
+      const appContainer = document.getElementById('app');
+      let currentView = 'dashboard';
+
+      // --- Utilities ---
+      const render = (html) => {
+        appContainer.innerHTML = html;
+
+        // Prevent accidental form-submit behavior from dynamically rendered buttons.
+        appContainer.querySelectorAll('button:not([type])').forEach((btn) => {
+          btn.setAttribute('type', 'button');
+        });
+
+        // Re-initialize Lucide icons after each render
+        if (window.lucide) {
+          window.lucide.createIcons();
+        }
+      };
+
+      // Global guard: prevent default browser action for game buttons.
+      // This avoids accidental page refresh/navigation during gameplay interactions.
+      document.addEventListener('click', (event) => {
+        const btn = event.target.closest('button');
+        if (!btn) return;
+        event.preventDefault();
+      }, true);
+
+      // --- Persistence ---
+      const saveState = (view, state = {}) => {
+        localStorage.setItem('cognicare_view', view);
+        localStorage.setItem('cognicare_state', JSON.stringify(state));
+      };
+
+      const loadState = () => {
+        const view = localStorage.getItem('cognicare_view');
+        const state = JSON.parse(localStorage.getItem('cognicare_state') || '{}');
+        return { view, state };
+      };
+
+      // --- Dashboard ---
+      const showDashboard = (save = true) => {
+        currentView = 'dashboard';
+        if (save) saveState('dashboard');
+        
+        const games = [
+          { id: 'memory', title: 'Word Recall', icon: 'volume-2', color: 'bg-teal-500', desc: 'Listen & repeat words' },
+          { id: 'odd-one', title: 'Sound Match', icon: 'music-2', color: 'bg-orange-400', desc: 'Match sounds to images' },
+          { id: 'connect', title: 'Story Sequence', icon: 'message-square', color: 'bg-violet-500', desc: 'Order story events' },
+          { id: 'sequence', title: 'Pattern Repeat', icon: 'refresh-cw', color: 'bg-cyan-600', desc: 'Repeat audio patterns' },
+        ];
+
+        const html = `
+          <div class="flex-1 flex flex-col fade-in">
+            <header class="p-6 pt-10 bg-white border-b">
+              <div class="flex items-center gap-3 mb-2">
+                <div class="p-2 bg-violet-500 rounded-2xl">
+                  <i data-lucide="headphones" class="w-6 h-6 text-white"></i>
+                </div>
+                <div>
+                  <p class="text-xs font-bold tracking-[0.22em] text-violet-500 uppercase">Daily Challenge</p>
+                  <h1 class="text-2xl font-display font-bold text-slate-900">Audio Memory Quest</h1>
+                </div>
+              </div>
+              <p class="text-slate-500 leading-relaxed">Complete today's set of 3 games to maintain your streak!</p>
+            </header>
+
+            <div class="flex-1 px-5 py-6 overflow-y-auto">
+              <section class="mb-7 rounded-[28px] bg-violet-400 text-white p-6 shadow-lg shadow-violet-200/40">
+                <button onclick="window.startGame('memory')" class="inline-flex items-center gap-2 rounded-2xl bg-white/20 px-5 py-3 font-bold text-white transition-transform active:scale-95">
+                  <i data-lucide="play" class="w-4 h-4"></i>
+                  Start Challenge
+                </button>
+              </section>
+
+              <h2 class="text-lg font-bold text-slate-900 mb-4">All Games</h2>
+              <div class="grid gap-4">
+                ${games.map(game => `
+                  <button onclick="window.startGame('${game.id}')" class="flex items-center p-4 bg-white rounded-[24px] shadow-sm border border-slate-100 text-left transition-transform active:scale-[0.98]">
+                    <div class="w-14 h-14 ${game.color} rounded-2xl flex items-center justify-center mr-4 text-white shadow-inner">
+                      <i data-lucide="${game.icon}" class="w-6 h-6"></i>
+                    </div>
+                    <div class="flex-1 min-w-0">
+                      <h3 class="font-display font-bold text-lg text-slate-900">${game.title}</h3>
+                      <p class="text-sm text-slate-500">${game.desc}</p>
+                    </div>
+                    <div class="ml-4 rounded-full px-3 py-1 text-xs font-bold ${game.id === 'memory' ? 'bg-green-100 text-green-700' : game.id === 'odd-one' ? 'bg-orange-100 text-orange-600' : game.id === 'connect' ? 'bg-violet-100 text-violet-600' : 'bg-cyan-100 text-cyan-700'}">
+                      ${game.id === 'memory' ? 'Easy' : game.id === 'odd-one' ? 'Easy' : game.id === 'connect' ? 'Medium' : 'Hard'}
+                    </div>
+                  </button>
+                `).join('')}
+              </div>
+            </div>
+
+            <footer class="border-t bg-white px-4 py-3">
+              <div class="grid grid-cols-5 gap-2 text-center text-[10px] font-medium text-slate-400">
+                <div class="flex flex-col items-center gap-1 text-slate-400"><i data-lucide="home" class="w-6 h-6"></i><span>Home</span></div>
+                <div class="flex flex-col items-center gap-1 text-violet-500"><i data-lucide="mic" class="w-6 h-6"></i><span>Voice</span></div>
+                <div class="flex flex-col items-center gap-1 text-slate-400"><i data-lucide="brain" class="w-6 h-6"></i><span>Scan</span></div>
+                <div class="flex flex-col items-center gap-1 text-slate-400"><i data-lucide="chart-line" class="w-6 h-6"></i><span>Progress</span></div>
+                <div class="flex flex-col items-center gap-1 text-slate-400"><i data-lucide="gamepad-2" class="w-6 h-6"></i><span>Games</span></div>
+              </div>
+            </footer>
+          </div>
+        `;
+        render(html);
+      };
+
+      // --- Game: Memory Match ---
+      let memoryState = {
+        cards: [],
+        flippedIndices: [],
+        moves: 0,
+        matches: 0
+      };
+
+      const initMemoryGame = (restoredState = null) => {
+        currentView = 'memory';
+        if (restoredState) {
+          memoryState = restoredState;
+        } else {
+          const icons = ['🍎', '🍌', '🍇', '🍓', '🍒', '🍍', '🥝', '🍉'];
+          const deck = [...icons, ...icons]
+            .sort(() => Math.random() - 0.5)
+            .map((value, index) => ({ id: index, value, isFlipped: false, isMatched: false }));
+          
+          memoryState = {
+            cards: deck,
+            flippedIndices: [],
+            moves: 0,
+            matches: 0
+          };
+        }
+        saveState('memory', memoryState);
+        renderMemoryGame();
+      };
+
+      const handleMemoryClick = (index) => {
+        const { cards, flippedIndices } = memoryState;
+        if (flippedIndices.length === 2 || cards[index].isFlipped || cards[index].isMatched) return;
+
+        cards[index].isFlipped = true;
+        flippedIndices.push(index);
+        saveState('memory', memoryState);
+        renderMemoryGame();
+
+        if (flippedIndices.length === 2) {
+          memoryState.moves++;
+          const [first, second] = flippedIndices;
+          if (cards[first].value === cards[second].value) {
+            setTimeout(() => {
+              cards[first].isMatched = true;
+              cards[second].isMatched = true;
+              memoryState.flippedIndices = [];
+              memoryState.matches++;
+              saveState('memory', memoryState);
+              renderMemoryGame();
+            }, 500);
+          } else {
+            setTimeout(() => {
+              cards[first].isFlipped = false;
+              cards[second].isFlipped = false;
+              memoryState.flippedIndices = [];
+              saveState('memory', memoryState);
+              renderMemoryGame();
+            }, 1000);
+          }
+        }
+      };
+
+      const renderMemoryGame = () => {
+        const html = `
+          <div class="flex flex-col h-full slide-in">
+            <div class="flex items-center justify-between p-4 bg-white border-b">
+              <button onclick="window.showDashboard()" class="p-2 hover:bg-slate-100 rounded-full transition-colors">
+                <i data-lucide="arrow-left" class="w-6 h-6"></i>
+              </button>
+              <h2 class="text-xl font-display font-bold">Memory Match</h2>
+              <div class="w-10"></div>
+            </div>
+
+            <div class="flex-1 p-4 overflow-y-auto">
+              <div class="flex justify-between mb-6 bg-blue-50 p-4 rounded-2xl">
+                <div class="text-center">
+                  <p class="text-xs text-blue-600 font-bold uppercase tracking-wider">Moves</p>
+                  <p class="text-2xl font-display font-bold text-blue-900">${memoryState.moves}</p>
+                </div>
+                <div class="text-center">
+                  <p class="text-xs text-blue-600 font-bold uppercase tracking-wider">Matches</p>
+                  <p class="text-2xl font-display font-bold text-blue-900">${memoryState.matches}/8</p>
+                </div>
+              </div>
+
+              <div class="grid grid-cols-4 gap-3">
+                ${memoryState.cards.map((card, index) => `
+                  <div onclick="window.handleMemoryClick(${index})" 
+                       class="aspect-square rounded-xl flex items-center justify-center text-3xl cursor-pointer transition-all duration-300 shadow-sm active:scale-95 ${
+                         card.isFlipped || card.isMatched 
+                           ? 'bg-white border-2 border-blue-200' 
+                           : 'bg-blue-500 border-2 border-blue-600'
+                       }">
+                    ${(card.isFlipped || card.isMatched) ? card.value : ''}
+                  </div>
+                `).join('')}
+              </div>
+
+              ${memoryState.matches === 8 ? `
+                <div class="mt-8 p-6 bg-green-50 rounded-3xl text-center border border-green-100 fade-in">
+                  <i data-lucide="check-circle-2" class="w-12 h-12 text-green-500 mx-auto mb-2"></i>
+                  <h3 class="text-xl font-bold text-green-900">Great Job!</h3>
+                  <p class="text-green-700 mb-4">You found all pairs in ${memoryState.moves} moves.</p>
+                  <button onclick="window.initMemoryGame()" class="px-6 py-3 bg-green-500 text-white rounded-xl font-bold hover:bg-green-600 transition-colors flex items-center justify-center mx-auto gap-2">
+                    <i data-lucide="rotate-ccw" class="w-5 h-5"></i> Play Again
+                  </button>
+                </div>
+              ` : ''}
+            </div>
+          </div>
+        `;
+        render(html);
+      };
+
+      // --- Game: Sequence Master ---
+      let sequenceState = {
+        sequence: [],
+        userSequence: [],
+        isPlaying: false,
+        activeButton: null,
+        status: 'idle'
+      };
+
+      const initSequenceGame = (restoredState = null) => {
+        currentView = 'sequence';
+        if (restoredState) {
+          sequenceState = restoredState;
+          // If it was playing or in input, reset to idle to avoid weird states on refresh
+          if (sequenceState.status === 'playing' || sequenceState.status === 'input') {
+            sequenceState.status = 'idle';
+            sequenceState.isPlaying = false;
+            sequenceState.activeButton = null;
+          }
+        } else {
+          sequenceState = {
+            sequence: [],
+            userSequence: [],
+            isPlaying: false,
+            activeButton: null,
+            status: 'idle'
+          };
+        }
+        saveState('sequence', sequenceState);
+        renderSequenceGame();
+      };
+
+      const startSequenceRound = async () => {
+        sequenceState.sequence.push(Math.floor(Math.random() * 4));
+        sequenceState.userSequence = [];
+        sequenceState.status = 'playing';
+        sequenceState.isPlaying = true;
+        saveState('sequence', sequenceState);
+        renderSequenceGame();
+
+        for (let i = 0; i < sequenceState.sequence.length; i++) {
+          await new Promise(resolve => setTimeout(resolve, 600));
+          sequenceState.activeButton = sequenceState.sequence[i];
+          renderSequenceGame();
+          await new Promise(resolve => setTimeout(resolve, 400));
+          sequenceState.activeButton = null;
+          renderSequenceGame();
+        }
+
+        sequenceState.isPlaying = false;
+        sequenceState.status = 'input';
+        saveState('sequence', sequenceState);
+        renderSequenceGame();
+      };
+
+      const handleSequenceClick = (id) => {
+        if (sequenceState.status !== 'input' || sequenceState.isPlaying) return;
+
+        sequenceState.userSequence.push(id);
+        
+        if (id !== sequenceState.sequence[sequenceState.userSequence.length - 1]) {
+          sequenceState.status = 'failed';
+          saveState('sequence', sequenceState);
+          renderSequenceGame();
+          return;
+        }
+
+        if (sequenceState.userSequence.length === sequenceState.sequence.length) {
+          sequenceState.status = 'success';
+          saveState('sequence', sequenceState);
+          renderSequenceGame();
+          setTimeout(() => startSequenceRound(), 1000);
+        } else {
+          saveState('sequence', sequenceState);
+          renderSequenceGame();
+        }
+      };
+
+      const renderSequenceGame = () => {
+        const colors = ['bg-red-400', 'bg-blue-400', 'bg-green-400', 'bg-yellow-400'];
+        const activeColors = ['bg-red-600', 'bg-blue-600', 'bg-green-600', 'bg-yellow-600'];
+
+        const html = `
+          <div class="flex flex-col h-full slide-in">
+            <div class="flex items-center justify-between p-4 bg-white border-b">
+              <button onclick="window.showDashboard()" class="p-2 hover:bg-slate-100 rounded-full transition-colors">
+                <i data-lucide="arrow-left" class="w-6 h-6"></i>
+              </button>
+              <h2 class="text-xl font-display font-bold">Sequence Master</h2>
+              <div class="w-10"></div>
+            </div>
+
+            <div class="flex-1 p-6 flex flex-col items-center justify-center">
+              <div class="text-center mb-8">
+                <p class="text-lg font-medium text-slate-600 mb-2">
+                  ${sequenceState.status === 'idle' ? 'Watch the pattern and repeat it' : ''}
+                  ${sequenceState.status === 'playing' ? 'Watching...' : ''}
+                  ${sequenceState.status === 'input' ? 'Your turn!' : ''}
+                  ${sequenceState.status === 'failed' ? 'Oops! Try again.' : ''}
+                  ${sequenceState.status === 'success' ? 'Correct! Next level...' : ''}
+                </p>
+                <p class="text-4xl font-display font-bold text-slate-900">Level ${sequenceState.sequence.length || 1}</p>
+              </div>
+
+              <div class="grid grid-cols-2 gap-4 w-full max-w-xs">
+                ${[0, 1, 2, 3].map(id => `
+                  <button onclick="window.handleSequenceClick(${id})" 
+                          class="aspect-square rounded-3xl shadow-lg transition-colors duration-200 active:scale-90 ${
+                            sequenceState.activeButton === id ? activeColors[id] : colors[id]
+                          }">
+                  </button>
+                `).join('')}
+              </div>
+
+              ${sequenceState.status === 'idle' ? `
+                <button onclick="window.startSequenceRound()" class="mt-12 px-8 py-4 bg-indigo-600 text-white rounded-2xl font-bold text-lg shadow-xl hover:bg-indigo-700 transition-all active:scale-95">
+                  Start Game
+                </button>
+              ` : ''}
+
+              ${sequenceState.status === 'failed' ? `
+                <button onclick="window.initSequenceGame()" class="mt-12 px-8 py-4 bg-red-600 text-white rounded-2xl font-bold text-lg shadow-xl hover:bg-red-700 transition-all flex items-center gap-2 active:scale-95">
+                  <i data-lucide="rotate-ccw" class="w-5 h-5"></i> Try Again
+                </button>
+              ` : ''}
+            </div>
+          </div>
+        `;
+        render(html);
+      };
+
+      // --- Game: Odd One Out ---
+      let oddState = {
+        level: 1,
+        grid: [],
+        targetIndex: -1,
+        gameOver: false
+      };
+
+      const initOddGame = (restoredState = null) => {
+        currentView = 'odd-one';
+        if (restoredState) {
+          oddState = restoredState;
+          saveState('odd-one', oddState);
+          renderOddGame();
+        } else {
+          oddState.level = 1;
+          oddState.gameOver = false;
+          generateOddGrid();
+        }
+      };
+
+      const generateOddGrid = () => {
+        const emojiSets = [
+          ['🍎', '🍏'], ['🐶', '🐱'], ['🌞', '🌙'], ['🚗', '🚲'], 
+          ['⚽', '🏀'], ['🍔', '🍕'], ['🎸', '🎻'], ['🏠', '🏢']
+        ];
+        const set = emojiSets[Math.floor(Math.random() * emojiSets.length)];
+        const size = oddState.level < 5 ? 4 : oddState.level < 10 ? 9 : 16;
+        const newGrid = Array(size).fill(set[0]);
+        const target = Math.floor(Math.random() * size);
+        newGrid[target] = set[1];
+        oddState.grid = newGrid;
+        oddState.targetIndex = target;
+        saveState('odd-one', oddState);
+        renderOddGame();
+      };
+
+      const handleOddClick = (index) => {
+        if (oddState.gameOver) return;
+        if (index === oddState.targetIndex) {
+          oddState.level++;
+          generateOddGrid();
+        } else {
+          oddState.gameOver = true;
+          saveState('odd-one', oddState);
+          renderOddGame();
+        }
+      };
+
+      const renderOddGame = () => {
+        const cols = oddState.grid.length === 4 ? 'grid-cols-2' : oddState.grid.length === 9 ? 'grid-cols-3' : 'grid-cols-4';
+        const html = `
+          <div class="flex flex-col h-full slide-in">
+            <div class="flex items-center justify-between p-4 bg-white border-b">
+              <button onclick="window.showDashboard()" class="p-2 hover:bg-slate-100 rounded-full transition-colors">
+                <i data-lucide="arrow-left" class="w-6 h-6"></i>
+              </button>
+              <h2 class="text-xl font-display font-bold">Odd One Out</h2>
+              <div class="w-10"></div>
+            </div>
+
+            <div class="flex-1 p-6 flex flex-col items-center">
+              <div class="w-full mb-8 flex justify-between items-center bg-purple-50 p-4 rounded-2xl">
+                <div>
+                  <p class="text-xs text-purple-600 font-bold uppercase">Level</p>
+                  <p class="text-2xl font-display font-bold text-purple-900">${oddState.level}</p>
+                </div>
+                <p class="text-sm font-medium text-purple-700">Find the different emoji</p>
+              </div>
+
+              <div class="grid ${cols} gap-3 w-full max-w-sm">
+                ${oddState.grid.map((emoji, i) => `
+                  <button onclick="window.handleOddClick(${i})" 
+                          class="aspect-square bg-white rounded-2xl shadow-sm border border-slate-100 text-4xl flex items-center justify-center hover:bg-slate-50 transition-colors active:scale-90">
+                    ${emoji}
+                  </button>
+                `).join('')}
+              </div>
+
+              ${oddState.gameOver ? `
+                <div class="mt-12 p-8 bg-white rounded-3xl shadow-2xl text-center border-2 border-red-100 fade-in">
+                  <i data-lucide="alert-circle" class="w-16 h-16 text-red-500 mx-auto mb-4"></i>
+                  <h3 class="text-2xl font-bold text-slate-900 mb-2">Game Over</h3>
+                  <p class="text-slate-600 mb-6">You reached Level ${oddState.level}</p>
+                  <button onclick="window.initOddGame()" class="w-full py-4 bg-purple-600 text-white rounded-2xl font-bold text-lg shadow-lg hover:bg-purple-700 transition-all active:scale-95">
+                    Try Again
+                  </button>
+                </div>
+              ` : ''}
+            </div>
+          </div>
+        `;
+        render(html);
+      };
+
+      // --- Game: Connect Dots ---
+      let connectState = {
+        dots: [],
+        nextDot: 1,
+        completed: false,
+        width: 0,
+        height: 0
+      };
+
+      const initConnectGame = (restoredState = null) => {
+        currentView = 'connect';
+        if (restoredState) {
+          connectState = restoredState;
+          saveState('connect', connectState);
+          renderConnectGame();
+        } else {
+          const container = document.getElementById('game-container');
+          if (!container) {
+            renderConnectGameSkeleton();
+            setTimeout(() => initConnectGame(), 100);
+            return;
+          }
+
+          const rect = container.getBoundingClientRect();
+          const width = rect.width;
+          const height = rect.height;
+
+          const newDots = [];
+          const count = 8;
+          const padding = 40;
+          const minDistance = 60;
+
+          for (let i = 1; i <= count; i++) {
+            let x, y, tooClose;
+            let attempts = 0;
+            do {
+              tooClose = false;
+              x = padding + Math.random() * (width - padding * 2);
+              y = padding + Math.random() * (height - padding * 2);
+              for (const dot of newDots) {
+                const dist = Math.sqrt(Math.pow(x - dot.x, 2) + Math.pow(y - dot.y, 2));
+                if (dist < minDistance) { tooClose = true; break; }
+              }
+              attempts++;
+            } while (tooClose && attempts < 50);
+            newDots.push({ id: i, x, y, isConnected: false });
+          }
+
+          connectState = {
+            dots: newDots,
+            nextDot: 1,
+            completed: false,
+            width,
+            height
+          };
+          saveState('connect', connectState);
+          renderConnectGame();
+        }
+      };
+
+      const handleConnectClick = (id) => {
+        if (id === connectState.nextDot) {
+          connectState.dots[id - 1].isConnected = true;
+          if (id === connectState.dots.length) {
+            connectState.completed = true;
+          } else {
+            connectState.nextDot++;
+          }
+          saveState('connect', connectState);
+          renderConnectGame();
+        }
+      };
+
+      const renderConnectGameSkeleton = () => {
+        const html = `
+          <div class="flex flex-col h-full slide-in">
+            <div class="flex items-center justify-between p-4 bg-white border-b">
+              <button onclick="window.showDashboard()" class="p-2 hover:bg-slate-100 rounded-full transition-colors">
+                <i data-lucide="arrow-left" class="w-6 h-6"></i>
+              </button>
+              <h2 class="text-xl font-display font-bold">Connect Dots</h2>
+              <div class="w-10"></div>
+            </div>
+            <div id="game-container" class="flex-1 relative overflow-hidden bg-slate-50"></div>
+          </div>
+        `;
+        render(html);
+      };
+
+      const renderConnectGame = () => {
+        const html = `
+          <div class="flex flex-col h-full slide-in">
+            <div class="flex items-center justify-between p-4 bg-white border-b">
+              <button onclick="window.showDashboard()" class="p-2 hover:bg-slate-100 rounded-full transition-colors">
+                <i data-lucide="arrow-left" class="w-6 h-6"></i>
+              </button>
+              <h2 class="text-xl font-display font-bold">Connect Dots</h2>
+              <div class="w-10"></div>
+            </div>
+
+            <div id="game-container" class="flex-1 relative overflow-hidden bg-slate-50">
+              <div class="absolute top-4 left-4 right-4 bg-orange-50 p-3 rounded-xl border border-orange-100 text-center z-10">
+                <p class="text-orange-800 font-medium">Tap the numbers in order: <span class="font-bold text-lg">${connectState.nextDot}</span></p>
+              </div>
+
+              <svg class="absolute inset-0 w-full h-full pointer-events-none">
+                ${connectState.dots.map((dot, i) => {
+                  if (i > 0 && connectState.dots[i].isConnected && connectState.dots[i-1].isConnected) {
+                    return `<line x1="${connectState.dots[i-1].x}" y1="${connectState.dots[i-1].y}" x2="${dot.x}" y2="${dot.y}" stroke="#f97316" stroke-width="4" stroke-linecap="round" />`;
+                  }
+                  return '';
+                }).join('')}
+              </svg>
+
+              ${connectState.dots.map(dot => `
+                <button onclick="window.handleConnectClick(${dot.id})" 
+                        style="left: ${dot.x - 24}px; top: ${dot.y - 24}px;"
+                        class="absolute w-12 h-12 rounded-full flex items-center justify-center font-bold text-xl shadow-md transition-all z-20 active:scale-90 ${
+                          dot.isConnected ? 'bg-orange-500 text-white' : 'bg-white text-slate-900 border-2 border-slate-200'
+                        }">
+                  ${dot.id}
+                </button>
+              `).join('')}
+
+              ${connectState.completed ? `
+                <div class="absolute bottom-10 left-6 right-6 p-8 bg-white rounded-3xl shadow-2xl text-center border-2 border-orange-100 z-30 fade-in">
+                  <h3 class="text-2xl font-bold text-slate-900 mb-2">Excellent!</h3>
+                  <p class="text-slate-600 mb-6">You connected all the dots perfectly.</p>
+                  <button onclick="window.initConnectGame()" class="w-full py-4 bg-orange-500 text-white rounded-2xl font-bold text-lg shadow-lg hover:bg-orange-600 transition-all active:scale-95">
+                    Play Again
+                  </button>
+                </div>
+              ` : ''}
+            </div>
+          </div>
+        `;
+        render(html);
+      };
+
+      // --- Global API ---
+      window.showDashboard = showDashboard;
+      window.startGame = (id) => {
+        if (id === 'memory') initMemoryGame();
+        if (id === 'sequence') initSequenceGame();
+        if (id === 'odd-one') initOddGame();
+        if (id === 'connect') initConnectGame();
+      };
+      window.handleMemoryClick = handleMemoryClick;
+      window.initMemoryGame = initMemoryGame;
+      window.handleSequenceClick = handleSequenceClick;
+      window.startSequenceRound = startSequenceRound;
+      window.initSequenceGame = initSequenceGame;
+      window.handleOddClick = handleOddClick;
+      window.initOddGame = initOddGame;
+      window.handleConnectClick = handleConnectClick;
+      window.initConnectGame = initConnectGame;
+
+      // --- Initial Load ---
+      window.onload = () => {
+        const { view, state } = loadState();
+        if (view && view !== 'dashboard') {
+          if (view === 'memory') initMemoryGame(state);
+          else if (view === 'sequence') initSequenceGame(state);
+          else if (view === 'odd-one') initOddGame(state);
+          else if (view === 'connect') initConnectGame(state);
+          else showDashboard(false);
+        } else {
+          showDashboard(false);
+        }
+      };
+    </script>
+  </body>
+</html>
