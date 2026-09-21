@@ -35,7 +35,9 @@ def predict_audio(audio_path):
     pred = model.predict(features)[0]
     prob = model.predict_proba(features)[0]
 
-    label = "Dementia" if pred == 1 else "✅ No Dementia"
+    # Plain labels: these are stored in the database and mapped to a risk
+    # level by synapse.utils, so they must not carry decoration.
+    label = "Dementia" if pred == 1 else "No Dementia"
     confidence = float(np.max(prob))
 
     return label, confidence

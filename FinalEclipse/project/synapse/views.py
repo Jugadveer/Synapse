@@ -102,9 +102,12 @@ def audio_scan(request):
 
         os.remove(file_path)
 
-        risk = get_risk_level(result)
+        risk = get_risk_level(result, "AUDIO")
+        if risk is None:
+            return JsonResponse(
+                {"error": "Could not interpret the scan result"}, status=502
+            )
 
-        # ✅ SAVE
         ScanResult.objects.create(
             user=request.user,
             scan_type="AUDIO",
@@ -143,9 +146,12 @@ def mri_scan(request):
 
         os.remove(file_path)
 
-        risk = get_risk_level(result)
+        risk = get_risk_level(result, "MRI")
+        if risk is None:
+            return JsonResponse(
+                {"error": "Could not interpret the scan result"}, status=502
+            )
 
-        # ✅ SAVE
         ScanResult.objects.create(
             user=request.user,
             scan_type="MRI",
