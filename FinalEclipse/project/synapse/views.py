@@ -1,217 +1,236 @@
-from django.shortcuts import render, redirect
-from django.contrib.auth import authenticate, login
-from django.contrib.auth.models import User
-from .models import Profile
-from django.contrib.auth.decorators import login_required
+import logging
+import os
+import uuid
+from datetime import timedelta
 
-@login_required
-def dashboard(request):
-    return render(request, 'dashboard.html')
+from django.conf import settings
+from django.contrib.auth import authenticate, login, logout
+from django.contrib.auth.decorators import login_required
+from django.contrib.auth.models import User
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError
+from django.db import transaction
+from django.http import JsonResponse
+from django.shortcuts import redirect, render
+from django.utils import timezone
+from django.views.decorators.http import require_http_methods, require_POST
+
+from .models import Profile, ScanResult
+from .utils import get_risk_level
+
+logger = logging.getLogger(__name__)
+
+MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+AUDIO_EXTENSIONS = {'.wav', '.mp3', '.m4a', '.flac', '.ogg'}
+IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.bmp', '.tif', '.tiff'}
+
+
+# ----------------------------------------------------------------- pages
 
 def landing(request):
     return render(request, 'landing.html')
 
 
+@login_required
+def dashboard(request):
+    return render(request, 'dashboard.html')
 
-# ✅ SIGNUP VIEW (FIXED)
+
+# ------------------------------------------------------------------ auth
+
+@require_http_methods(['GET', 'POST'])
 def signup_view(request):
-    if request.method == "POST":
-        username = request.POST.get('signup_username')
-        password = request.POST.get('signup_password')
-        name = request.POST.get('name')
-        email = request.POST.get('email')
-        gender = request.POST.get('gender')
-        age = request.POST.get('age')
+    if request.method != 'POST':
+        return redirect('/')
 
-        # 🔴 Check if user already exists
-        if User.objects.filter(username=username).exists():
-            print("User already exists")
-            return redirect('/')
+    username = (request.POST.get('signup_username') or '').strip()
+    password = request.POST.get('signup_password') or ''
+    name = (request.POST.get('name') or '').strip()
+    email = (request.POST.get('email') or '').strip()
+    gender = (request.POST.get('gender') or '').strip()
+    age = request.POST.get('age')
 
-        # ✅ Create User
-        user = User.objects.create_user(
-            username=username,
-            password=password,
-            email=email
-        )
+    if not username or not password:
+        return render(request, 'signup.html', {'error': 'Username and password are required.'})
 
-        # ✅ Create Profile
-        Profile.objects.create(
-            user=user,
-            name=name,
-            gender=gender,
-            age=age
-        )
+    if User.objects.filter(username=username).exists():
+        return render(request, 'signup.html', {'error': 'That username is already taken.'})
 
-        # ✅ Login user
-        login(request, user)
-        return redirect('/dashboard/')
+    try:
+        # create_user does not run the configured validators on its own.
+        validate_password(password)
+    except ValidationError as exc:
+        return render(request, 'signup.html', {'error': ' '.join(exc.messages)})
 
-    return redirect('/')
+    try:
+        # A non-numeric age used to reach the IntegerField and raise a 500.
+        age = int(age)
+    except (TypeError, ValueError):
+        return render(request, 'signup.html', {'error': 'Please enter your age as a number.'})
+    if not 0 < age < 130:
+        return render(request, 'signup.html', {'error': 'Please enter a valid age.'})
+
+    with transaction.atomic():
+        user = User.objects.create_user(username=username, password=password, email=email)
+        Profile.objects.create(user=user, name=name or username, gender=gender, age=age)
+
+    login(request, user)
+    return redirect('/dashboard/')
 
 
-# ✅ LOGIN VIEW (FIXED)
+@require_http_methods(['GET', 'POST'])
 def login_view(request):
-    if request.method == "POST":
-        username = request.POST.get('username')
-        password = request.POST.get('password')
+    if request.method != 'POST':
+        return redirect('/')
 
-        user = authenticate(request, username=username, password=password)
+    username = (request.POST.get('username') or '').strip()
+    password = request.POST.get('password') or ''
+    user = authenticate(request, username=username, password=password)
 
-        if user is not None:
-            login(request, user)
-            return redirect('/dashboard/')
-        else:
-            print("Invalid credentials")
-            return redirect('/')
+    if user is None:
+        return render(request, 'login.html', {'error': 'Incorrect username or password.'})
 
+    login(request, user)
+    return redirect('/dashboard/')
+
+
+@require_POST
+def logout_view(request):
+    logout(request)
+    # This used to fall off the end and return None on any non-POST request,
+    # which Django turns into a 500.
     return redirect('/')
 
 
+# ----------------------------------------------------------------- scans
 
-from django.contrib.auth import logout
-
-def logout_view(request):
-    if request.method == "POST":
-        logout(request)
-        return redirect('/')   # back to landing page
-    
+def _reject(message, status=400):
+    return JsonResponse({'error': message}, status=status)
 
 
+def _store_upload(upload, allowed_extensions):
+    """Write an upload to MEDIA_ROOT under a generated name.
 
-import os
-from django.http import JsonResponse
-from django.conf import settings
+    The client-supplied filename was used directly, so two people scanning
+    files with the same name overwrote each other and one request deleted the
+    other's file mid-inference.
+    """
+    extension = os.path.splitext(upload.name)[1].lower()
+    if extension not in allowed_extensions:
+        return None, f"Unsupported file type '{extension or upload.name}'."
+    if upload.size > MAX_UPLOAD_BYTES:
+        return None, 'That file is too large.'
 
-
-from .models import ScanResult
-from .utils import get_risk_level
-
-def audio_scan(request):
-    if request.method == "POST" and request.FILES.get("audio"):
-        audio = request.FILES["audio"]
-
-        file_path = os.path.join(settings.MEDIA_ROOT, audio.name)
-
-        with open(file_path, "wb+") as f:
-            for chunk in audio.chunks():
-                f.write(chunk)
-
-        from synapse.app.data.predict import predict_audio
-        result, confidence = predict_audio(file_path)
-
-        os.remove(file_path)
-
-        risk = get_risk_level(result, "AUDIO")
-        if risk is None:
-            return JsonResponse(
-                {"error": "Could not interpret the scan result"}, status=502
-            )
-
-        ScanResult.objects.create(
-            user=request.user,
-            scan_type="AUDIO",
-            result=result,
-            confidence=confidence,
-            risk_level=risk
-        )
-
-        return JsonResponse({
-            "result": result,
-            "confidence": round(confidence, 3),
-            "risk": risk
-        })
-
-    return JsonResponse({"error": "Invalid request"}, status=400)
+    os.makedirs(settings.MEDIA_ROOT, exist_ok=True)
+    path = os.path.join(settings.MEDIA_ROOT, f"{uuid.uuid4().hex}{extension}")
+    with open(path, 'wb+') as handle:
+        for chunk in upload.chunks():
+            handle.write(chunk)
+    return path, None
 
 
+def _run_scan(request, field, allowed_extensions, scan_type, predictor):
+    upload = request.FILES.get(field)
+    if upload is None:
+        return _reject(f"No {field} file was uploaded.")
 
-import os
-from django.http import JsonResponse
-from django.conf import settings
+    path, error = _store_upload(upload, allowed_extensions)
+    if error:
+        return _reject(error)
 
+    try:
+        result, confidence = predictor(path)
+    except Exception as exc:
+        logger.exception(f"{scan_type} inference failed: {exc}")
+        return _reject('Could not analyse that file.', status=502)
+    finally:
+        # Previously only removed on the happy path, so every failed scan
+        # left its upload behind in MEDIA_ROOT.
+        try:
+            os.remove(path)
+        except OSError:
+            logger.warning(f"Could not remove temporary upload {path}")
 
-def mri_scan(request):
-    if request.method == "POST" and request.FILES.get("mri"):
-        mri_file = request.FILES["mri"]
+    if result is None or confidence is None:
+        # predict_audio returns (None, None) for unreadable audio; rounding
+        # that used to raise a TypeError and return a 500.
+        return _reject('Could not read that recording. Please try another file.', status=422)
 
-        file_path = os.path.join(settings.MEDIA_ROOT, mri_file.name)
+    risk = get_risk_level(result, scan_type)
+    if risk is None:
+        logger.error(f"{scan_type} model returned an unmapped label: {result!r}")
+        return _reject('Could not interpret the scan result.', status=502)
 
-        with open(file_path, "wb+") as f:
-            for chunk in mri_file.chunks():
-                f.write(chunk)
+    ScanResult.objects.create(
+        user=request.user,
+        scan_type=scan_type,
+        result=result,
+        confidence=confidence,
+        risk_level=risk,
+    )
 
-        from synapse.predict import predict_mri
-        result, confidence = predict_mri(file_path)
+    return JsonResponse({
+        'result': result,
+        # Both models now report a percentage. Audio returned 0-1 and MRI
+        # returned 0-100, and the dashboard rendered them with the same label.
+        'confidence': round(confidence * 100, 1),
+        'risk': risk,
+    })
 
-        os.remove(file_path)
-
-        risk = get_risk_level(result, "MRI")
-        if risk is None:
-            return JsonResponse(
-                {"error": "Could not interpret the scan result"}, status=502
-            )
-
-        ScanResult.objects.create(
-            user=request.user,
-            scan_type="MRI",
-            result=result,
-            confidence=confidence,
-            risk_level=risk
-        )
-
-        return JsonResponse({
-            "result": result,
-            "confidence": round(confidence * 100, 2),
-            "risk": risk
-        })
-
-    return JsonResponse({"error": "Invalid request"})
-
-
-
-from django.http import JsonResponse
-from django.contrib.auth.decorators import login_required
-from .models import ScanResult
-from django.utils import timezone
-from datetime import timedelta
-from django.db.models import Count
 
 @login_required
+@require_POST
+def audio_scan(request):
+    from synapse.app.data.predict import predict_audio
+
+    return _run_scan(request, 'audio', AUDIO_EXTENSIONS, 'AUDIO', predict_audio)
+
+
+@login_required
+@require_POST
+def mri_scan(request):
+    from synapse.predict import predict_mri
+
+    return _run_scan(request, 'mri', IMAGE_EXTENSIONS, 'MRI', predict_mri)
+
+
+# ------------------------------------------------------------- dashboard
+
+@login_required
+@require_http_methods(['GET'])
 def dashboard_data(request):
-    user = request.user
-    scans = ScanResult.objects.filter(user=user).order_by('-created_at')
+    scans = ScanResult.objects.filter(user=request.user).order_by('-created_at')
     total_sessions = scans.count()
-    # ---------- RISK LEVEL ----------
-    latest_scan = scans.first()
-    risk = latest_scan.risk_level if latest_scan else "LOW"
-    # ---------- STREAK ----------
-    today = timezone.now().date()
+
+    latest = scans.first()
+    risk = latest.risk_level if latest else 'LOW'
+
+    today = timezone.localdate()
+    # A streak counted back from today, so someone who scanned every day for a
+    # week but not yet today was shown a streak of zero. Start from the most
+    # recent day that actually has a scan.
+    scan_days = {
+        value.date() for value in scans.values_list('created_at', flat=True)
+    }
     streak = 0
-    for i in range(7):
-        day = today - timedelta(days=i)
-        if scans.filter(created_at__date=day).exists():
+    if scan_days:
+        cursor = today if today in scan_days else today - timedelta(days=1)
+        while cursor in scan_days:
             streak += 1
-        else:
-            break
-    # ---------- WEEKLY DATA ----------
-    last_7_days = []
-    labels = []
-    for i in range(6, -1, -1):
-        day = today - timedelta(days=i)
-        day_scans = scans.filter(created_at__date=day)
-        if day_scans.exists():
-            avg = sum([s.confidence for s in day_scans]) / day_scans.count()
-        else:
-            avg = 0
-        last_7_days.append(round(avg, 2))
+            cursor -= timedelta(days=1)
+
+    weekly_scores, labels = [], []
+    for offset in range(6, -1, -1):
+        day = today - timedelta(days=offset)
+        day_scans = [s for s in scans if s.created_at.date() == day]
+        average = sum(s.confidence for s in day_scans) / len(day_scans) if day_scans else 0
+        weekly_scores.append(round(average * 100, 1))
         labels.append(day.strftime('%a'))
 
-    # ---------- RESPONSE ----------
     return JsonResponse({
-        "risk": risk,
-        "sessions": total_sessions,
-        "streak": streak,
-        "weekly_scores": last_7_days,
-        "labels": labels
+        'risk': risk,
+        'sessions': total_sessions,
+        'streak': streak,
+        'weekly_scores': weekly_scores,
+        'labels': labels,
     })

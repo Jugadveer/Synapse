@@ -17,3 +17,6 @@ dist/
 
 # Runtime memory store (contains personal conversation data)
 faiss_memory/
+
+# Uploaded scans (patient data, transient)
+FinalEclipse/project/media/

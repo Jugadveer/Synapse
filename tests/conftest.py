@@ -86,7 +86,35 @@ def _install_ml_stubs():
         sys.modules['faiss'] = module
 
 
+def _install_predictor_stubs():
+    """Stand in for the two inference modules.
+
+    Importing them for real pulls in joblib, librosa and tensorflow. The views
+    import them lazily inside the request, so a stub module here is enough and
+    each test can set the return value it needs.
+    """
+    for name in ('synapse.app.data.predict', 'synapse.predict'):
+        module = types.ModuleType(name)
+        module.predict_audio = lambda path: ('No Dementia', 0.9)
+        module.predict_mri = lambda path: ('No Impairment', 0.9)
+        sys.modules[name] = module
+
+
 _install_ml_stubs()
+_install_predictor_stubs()
+
+
+@pytest.fixture
+def audio_predictor():
+    """Set the audio model's return value (or raise) for one test."""
+    module = sys.modules['synapse.app.data.predict']
+    original = module.predict_audio
+
+    def _set(fn):
+        module.predict_audio = fn
+
+    yield _set
+    module.predict_audio = original
 
 
 @pytest.fixture
