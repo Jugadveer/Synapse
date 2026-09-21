@@ -250,8 +250,13 @@ def dashboard_data(request):
     # A streak counted back from today, so someone who scanned every day for a
     # week but not yet today was shown a streak of zero. Start from the most
     # recent day that actually has a scan.
+    # localtime() first: created_at is stored in UTC, and east of Greenwich its
+    # .date() is the previous day. Without this, a scan at half past one in the
+    # morning counted against yesterday, merging two local days into one and
+    # under-reporting the streak.
     scan_days = {
-        value.date() for value in scans.values_list('created_at', flat=True)
+        timezone.localtime(value).date()
+        for value in scans.values_list('created_at', flat=True)
     }
     streak = 0
     if scan_days:
@@ -263,7 +268,9 @@ def dashboard_data(request):
     weekly_scores, labels = [], []
     for offset in range(6, -1, -1):
         day = today - timedelta(days=offset)
-        day_scans = [s for s in scans if s.created_at.date() == day]
+        day_scans = [
+            s for s in scans if timezone.localtime(s.created_at).date() == day
+        ]
         average = sum(s.confidence for s in day_scans) / len(day_scans) if day_scans else 0
         weekly_scores.append(round(average * 100, 1))
         labels.append(day.strftime('%a'))
