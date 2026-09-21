@@ -107,14 +107,45 @@ Two separate models, two separate label vocabularies:
 `synapse/utils.py` maps each vocabulary to a risk level separately, and returns
 `None` for a label it does not recognise rather than guessing.
 
-> **On the audio model.** It uses mean-pooled acoustic features (MFCC, chroma,
-> spectral contrast, ZCR). In the published ADReSS/DementiaBank benchmarks that
-> family of approach sits around 62–63% accuracy, against roughly 77% for
-> linguistic features from transcripts and 90%+ for multimodal models. Averaging
-> over the whole clip also discards the temporal and linguistic signal that
-> carries most of the discriminative power. Treat its output as a rough
-> indicator, not a diagnosis. The pipeline already transcribes speech with
-> Whisper, so adding a linguistic feature path is the obvious next step.
+> ### The audio model does not work well enough to screen with
+>
+> Measured on its own held-out split (`valid_dm.csv`, 62 usable rows):
+>
+> | | |
+> | --- | --- |
+> | accuracy | **59.7%** |
+> | always guessing the majority class | 58.1% |
+> | **sensitivity** (dementia caught) | **7.7%** — 2 of 26 |
+> | specificity (healthy cleared) | 97.2% — 35 of 36 |
+>
+> It is 1.6 points better than a coin weighted to the commoner answer. It has
+> effectively learned to say "No Dementia" to everyone: **24 of the 26 people
+> in the validation set who had dementia were told they were clear.**
+>
+> Sensitivity is the number that matters for screening, and this is the failure
+> mode that matters most — a false reassurance is worse than a false alarm,
+> because it is the one nobody follows up.
+>
+> Reproduce with:
+>
+> ```bash
+> python FinalEclipse/project/synapse/app/data/evaluate_audio_model.py
+> ```
+>
+> The cause is the approach, not a bug. Mean-pooled acoustic features (MFCC,
+> chroma, spectral contrast, ZCR) average away the temporal and linguistic
+> signal that carries most of the discriminative power. The published
+> ADReSS/DementiaBank results put this family of method at roughly 62%, against
+> ~77% for linguistic features taken from transcripts and 90%+ for multimodal
+> models — so this is performing about as well as the approach allows.
+>
+> The pipeline already transcribes speech with Whisper, so a linguistic feature
+> path is reachable without new infrastructure. Until then this output should
+> not be presented to anyone as a screening result.
+>
+> The MRI model has no held-out split in the repository (`dataset/` is ignored
+> and absent), so it has **not** been evaluated. Its four-class output is
+> plausible on the few slices available, but that is not a measurement.
 
 ## Tests
 
