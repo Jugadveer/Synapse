@@ -153,8 +153,9 @@ Two separate models, two separate label vocabularies:
 python -m pytest
 ```
 
-98 tests covering the memory store, reminder parsing, risk mapping, worker
-resilience, the scan endpoints and train/serve schema parity.
+126 tests covering the memory store, reminder parsing, risk mapping, worker
+resilience, the scan endpoints, train/serve schema parity, the real inference
+paths and the voice agent end to end.
 
 ## Fine-tuning the router
 
