@@ -80,7 +80,9 @@ class AsyncPipeline:
 
     async def handle_text(self, text):
         """Handle typed input, treated the same as a final transcript."""
-        text = (text or '').strip()
+        if not isinstance(text, str):
+            return
+        text = text.strip()
         if not text:
             return
         self.turn_start_time = time.time()

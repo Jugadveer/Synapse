@@ -98,7 +98,13 @@ class VoiceConsumer(AsyncJsonWebsocketConsumer):
         elif message_type == 'interrupt':
             await pipeline.interrupt()
         elif message_type in ('command', 'final_transcript', 'text_input'):
-            await pipeline.handle_text(data.get('text'))
+            text = data.get('text')
+            # A frame carrying a number, a list or an object for `text` used to
+            # reach .strip() and take the connection down with an AttributeError.
+            if isinstance(text, str):
+                await pipeline.handle_text(text)
+            else:
+                logger.debug('Ignoring %s frame with non-string text', message_type)
 
     # ------------------------------------------------------------------
     # outbound
