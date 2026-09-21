@@ -1,0 +1,13 @@
+# Vercel serves only the static cognitive-games page from this repository.
+# The Django voice assistant cannot run on Vercel - see docs/DEPLOYMENT.md.
+FinalEclipse/
+src/
+tests/
+docs/
+faiss_memory/
+.venv/
+*.py
+requirements*.txt
+pytest.ini
+manage.py
+db.sqlite3
