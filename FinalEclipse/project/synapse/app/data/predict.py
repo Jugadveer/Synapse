@@ -93,6 +93,17 @@ def classify_probability(probability):
     answer carries the probability that it is right, not the probability of
     the thing it ruled out.
     """
+    # A malformed score must not become a verdict. NaN compares false against
+    # everything, so it used to fall through to Inconclusive, and a probability
+    # outside [0, 1] produced confidences like 150%.
+    try:
+        probability = float(probability)
+    except (TypeError, ValueError):
+        return None, None
+    if np.isnan(probability):
+        return None, None
+    probability = min(max(probability, 0.0), 1.0)
+
     low, high = band_cuts()
     if probability >= high:
         return DEMENTIA, probability
