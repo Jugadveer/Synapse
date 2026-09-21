@@ -1,0 +1,47 @@
+{
+  "model": "logistic_regression_c001",
+  "calibration": "isotonic",
+  "trained_at": "2026-09-21T08:02:40.303611+00:00",
+  "n_clips": 281,
+  "n_features": 1596,
+  "n_speakers": 142,
+  "n_dementia_clips": 104,
+  "evaluation": "5-fold speaker-disjoint cross-validation",
+  "decision_threshold": 0.254,
+  "target_sensitivity": 0.8,
+  "metrics_at_threshold": {
+    "accuracy": 0.5658,
+    "sensitivity": 0.8173,
+    "specificity": 0.4181,
+    "balanced_accuracy": 0.6177,
+    "roc_auc": 0.6904,
+    "true_positives": 85,
+    "false_negatives": 19,
+    "true_negatives": 74,
+    "false_positives": 103
+  },
+  "metrics_at_half": {
+    "accuracy": 0.694,
+    "sensitivity": 0.4712,
+    "specificity": 0.8249,
+    "balanced_accuracy": 0.648,
+    "roc_auc": 0.6904,
+    "true_positives": 49,
+    "false_negatives": 55,
+    "true_negatives": 146,
+    "false_positives": 31
+  },
+  "holdout_metrics": {
+    "accuracy": 0.5915,
+    "sensitivity": 0.8519,
+    "specificity": 0.4318,
+    "balanced_accuracy": 0.6418,
+    "roc_auc": 0.7559,
+    "true_positives": 23,
+    "false_negatives": 4,
+    "true_negatives": 19,
+    "false_positives": 25
+  },
+  "holdout_note": "Held-out speakers, never seen in training or threshold selection.",
+  "majority_class_baseline": 0.6299
+}

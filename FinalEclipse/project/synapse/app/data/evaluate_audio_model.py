@@ -8,6 +8,10 @@ Accuracy on its own is misleading here because the classes are unbalanced.
 For a screening tool the number that matters is sensitivity: of the people who
 do have dementia, how many does it flag? A model that says "No Dementia" to
 everybody scores well on accuracy and is worth nothing.
+
+valid_dm.csv is a genuine holdout: prepare_data.py splits by speaker and
+train_model.py fits on the training split only, so no voice here was seen
+during training, model selection or threshold selection.
 """
 
 import csv
@@ -80,12 +84,15 @@ def report(tp, tn, fp, fn, skipped):
     print(f'  specificity (healthy cleared)  {100 * tn / negatives:5.1f}%   [{tn}/{negatives}]')
     print(f'\n  confusion: TP={tp} FN={fn} TN={tn} FP={fp}')
 
-    if accuracy - baseline < 5:
-        print(
-            f'\n  WARNING: only {accuracy - baseline:.1f} points above always guessing the '
-            'majority class.'
-        )
-    if 100 * tp / positives < 50:
+    balanced = 100 * ((tp / positives) + (tn / negatives)) / 2
+    print(f'\n  balanced accuracy              {balanced:5.1f}%')
+    print('  (raw accuracy sits below the majority baseline by design: the')
+    print('   threshold is set for sensitivity, so healthy people are flagged')
+    print('   more often. Balanced accuracy and AUC are the honest summaries.)')
+
+    if balanced < 55:
+        print(f'\n  WARNING: balanced accuracy {balanced:.1f}% is close to chance.')
+    if 100 * tp / positives < 70:
         print(
             f'  WARNING: {fn} of {positives} people with dementia were told they were clear.'
         )

@@ -17,11 +17,14 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 RESOURCES = REPO_ROOT / 'FinalEclipse' / 'project' / 'synapse' / 'resources'
 MODELS_DIR = REPO_ROOT / 'FinalEclipse' / 'project' / 'synapse' / 'app' / 'models'
 
-#: The feature vector the scaler and classifier were fitted on:
-#: MFCC(40) + chroma(12) + spectral contrast(7) + ZCR(1).
-EXPECTED_FEATURES = 60
+#: wav2vec2 hidden states pooled to mean+std (1536) followed by the
+#: hand-crafted summary: MFCC(40) + chroma(12) + spectral contrast(7) + ZCR(1).
+EMBEDDING_DIMS = 1536
+HANDCRAFTED_DIMS = 60
+EXPECTED_FEATURES = EMBEDDING_DIMS + HANDCRAFTED_DIMS
 
 AUDIO_LABELS = {'Dementia', 'No Dementia'}
+DEMENTIA_LABEL = 'Dementia'
 MRI_LABELS = {'Mild Impairment', 'Moderate Impairment', 'No Impairment', 'Very Mild Impairment'}
 
 
@@ -80,7 +83,7 @@ def test_there_are_recordings_to_test_with():
 
 @audio_only
 def test_feature_extraction_returns_the_expected_width():
-    """The classifier and scaler were fitted on exactly 60 features."""
+    """The classifier was fitted on exactly this many features."""
     from synapse.app.data.extract_features import extract_features
 
     wav = sample_wavs('Dementia', 1)[0]
@@ -89,6 +92,29 @@ def test_feature_extraction_returns_the_expected_width():
     assert features is not None, f'extraction returned None for {wav.name}'
     assert features.shape == (EXPECTED_FEATURES,), f'got shape {features.shape}'
     assert np.isfinite(features).all(), 'feature vector contains NaN or inf'
+
+
+@audio_only
+def test_windows_share_the_training_feature_shape():
+    """Inference averages over windows; each must look like a training row."""
+    from synapse.app.data.extract_features import extract_feature_windows
+
+    windows = extract_feature_windows(str(sample_wavs('Dementia', 1)[0]), max_windows=3)
+    assert windows, 'no windows extracted'
+    for window in windows:
+        assert window.shape == (EXPECTED_FEATURES,)
+
+
+@audio_only
+def test_unreadable_audio_yields_no_windows():
+    from synapse.app.data.extract_features import extract_feature_windows
+
+    import tempfile
+
+    with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as handle:
+        handle.write(b'not audio')
+        path = handle.name
+    assert extract_feature_windows(path) == []
 
 
 @audio_only
@@ -111,21 +137,79 @@ def test_feature_extraction_rejects_a_non_audio_file(tmp_path):
 # --------------------------------------------------- audio: scaler/model
 
 @audio_only
-def test_scaler_expects_the_features_we_produce():
-    """A mismatch here means every prediction is scaled from the wrong basis."""
-    import joblib
-
-    scaler = joblib.load(MODELS_DIR / 'scaler.pkl')
-    assert scaler.n_features_in_ == EXPECTED_FEATURES
-
-
-@audio_only
 def test_classifier_expects_the_features_we_produce():
+    """A mismatch here means every prediction is made from the wrong basis."""
     import joblib
 
     model = joblib.load(MODELS_DIR / 'dementia_model.pkl')
     assert model.n_features_in_ == EXPECTED_FEATURES
     assert set(model.classes_.tolist()) <= {0, 1}, f'unexpected classes {model.classes_}'
+
+
+@audio_only
+def test_scaling_lives_inside_the_pipeline():
+    """One artifact, so the scaler cannot drift out of step with the model."""
+    assert not (MODELS_DIR / 'scaler.pkl').exists(), 'stale standalone scaler'
+
+
+@audio_only
+def test_model_card_records_how_it_was_measured():
+    from synapse.app.data.predict import get_model_card
+
+    card = get_model_card()
+    assert card, 'no model card shipped alongside the model'
+    assert 'speaker-disjoint' in card['evaluation'], (
+        'metrics must come from a speaker-disjoint split; a split that shares '
+        'speakers measures voice recognition'
+    )
+    assert card['n_features'] == EXPECTED_FEATURES
+    assert 0.0 < card['decision_threshold'] < 1.0
+
+
+@audio_only
+def test_shipped_model_catches_most_cases():
+    """The regression that matters.
+
+    The previous model scored 7.7% sensitivity: it answered "No Dementia" to
+    almost everyone and told 24 of 26 people who had dementia they were clear.
+    False reassurance is the worst failure mode for a screening tool.
+    """
+    from synapse.app.data.predict import get_model_card
+
+    metrics = get_model_card()['metrics_at_threshold']
+    assert metrics['sensitivity'] >= 0.75, (
+        f'sensitivity fell to {metrics["sensitivity"]:.1%}'
+    )
+
+
+@audio_only
+def test_decision_threshold_is_taken_from_the_card():
+    """Leaving it at 0.5 is what produced the 7.7% sensitivity."""
+    from synapse.app.data.predict import decision_threshold, get_model_card
+
+    assert decision_threshold() == get_model_card()['decision_threshold']
+
+
+@audio_only
+def test_probabilities_are_calibrated():
+    import joblib
+    from sklearn.calibration import CalibratedClassifierCV
+
+    model = joblib.load(MODELS_DIR / 'dementia_model.pkl')
+    assert isinstance(model, CalibratedClassifierCV), (
+        'an uncalibrated score presented as a confidence is not a probability'
+    )
+
+
+@audio_only
+def test_confidence_is_reported_for_the_label_that_was_returned():
+    from synapse.app.data.predict import predict_audio
+
+    for wav in sample_wavs('NoDementia', 2):
+        label, confidence = predict_audio(str(wav))
+        assert 0.5 <= confidence <= 1.0 or label == DEMENTIA_LABEL, (
+            f'{wav.name}: reported {confidence:.2f} confidence in {label!r}'
+        )
 
 
 @audio_only

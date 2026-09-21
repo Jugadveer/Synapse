@@ -1,96 +1,306 @@
-import pandas as pd
-import numpy as np
+"""Train the audio dementia classifier.
+
+Three things are different from the previous version, and all three change
+what the numbers mean:
+
+1. Model selection and reporting use speaker-disjoint cross-validation. The
+   old script trained on a split that shared 68% of its validation speakers
+   with training, so it partly measured voice recognition.
+
+2. Probabilities are calibrated, so the number shown to a person as a
+   confidence is a probability rather than an arbitrary score.
+
+3. The decision threshold is chosen for sensitivity, not left at 0.5. At 0.5
+   this model answers "No Dementia" to almost everyone: it scored 7.7%
+   sensitivity, telling 24 of 26 people who had dementia that they were clear.
+   For screening, a missed case is worse than a false alarm.
+
+Run from FinalEclipse/project:
+
+    python synapse/app/data/prepare_data.py     # speaker-disjoint split
+    python synapse/app/data/train_model.py
+"""
+
+import csv
+import json
+import sys
+import warnings
+from datetime import datetime, timezone
+from pathlib import Path
+
 import joblib
-from tqdm import tqdm
+import numpy as np
 
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import classification_report
-from sklearn.preprocessing import StandardScaler
+warnings.filterwarnings('ignore')
 
-from extract_features import extract_features
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-# =========================
-# LOAD DATA (IMPORTANT FIX)
-# =========================
+from extract_features import extract_features  # noqa: E402
 
-train_df = pd.read_csv("app/data/train_dm.csv")   # NO sep="\t"
-valid_df = pd.read_csv("app/data/valid_dm.csv")
+from sklearn.calibration import CalibratedClassifierCV  # noqa: E402
+from sklearn.decomposition import PCA  # noqa: E402
+from sklearn.linear_model import LogisticRegression  # noqa: E402
+from sklearn.metrics import roc_auc_score  # noqa: E402
+from sklearn.model_selection import StratifiedGroupKFold  # noqa: E402
+from sklearn.pipeline import Pipeline  # noqa: E402
+from sklearn.preprocessing import StandardScaler  # noqa: E402
+from sklearn.svm import SVC  # noqa: E402
 
-print("Train columns:", train_df.columns)
-print("Valid columns:", valid_df.columns)
+DATA_DIR = Path(__file__).resolve().parent
+SYNAPSE_DIR = DATA_DIR.parents[1]
+MODELS_DIR = SYNAPSE_DIR / 'app' / 'models'
 
-# =========================
-# LABEL MAPPING
-# =========================
+#: Of the people who have dementia, the share we want flagged.
+TARGET_SENSITIVITY = 0.80
+LABELS = {'nodementia': 0, 'dementia': 1}
+FOLDS = 5
 
-label_map = {"nodementia": 0, "dementia": 1}
+# The feature vector is ~1600 wide against a few hundred clips, so every
+# candidate is either strongly regularised or reduced first. Tried and
+# rejected on this corpus: WavLM-base-plus embeddings (auc 0.711 against
+# wav2vec2's 0.747) and transcript-derived linguistic features (auc 0.49,
+# i.e. chance - see the README for why).
+CANDIDATES = {
+    'logistic_regression_c001': lambda: Pipeline([
+        ('scale', StandardScaler()),
+        ('clf', LogisticRegression(max_iter=5000, C=0.01,
+                                   class_weight='balanced', random_state=42)),
+    ]),
+    'logistic_regression_c0003': lambda: Pipeline([
+        ('scale', StandardScaler()),
+        ('clf', LogisticRegression(max_iter=5000, C=0.003,
+                                   class_weight='balanced', random_state=42)),
+    ]),
+    'pca32_logistic_regression': lambda: Pipeline([
+        ('scale', StandardScaler()),
+        ('pca', PCA(n_components=32, random_state=42)),
+        ('clf', LogisticRegression(max_iter=5000, C=0.5,
+                                   class_weight='balanced', random_state=42)),
+    ]),
+    'pca64_svm_rbf': lambda: Pipeline([
+        ('scale', StandardScaler()),
+        ('pca', PCA(n_components=64, random_state=42)),
+        ('clf', SVC(C=1.0, gamma='scale', class_weight='balanced',
+                    probability=True, random_state=42)),
+    ]),
+}
 
-train_df["label"] = train_df["label"].map(label_map)
-valid_df["label"] = valid_df["label"].map(label_map)
 
-# =========================
-# PROCESS DATA
-# =========================
+# --------------------------------------------------------------- data
 
-def process_dataframe(df):
-    X, y = [], []
+def load_rows(name):
+    path = DATA_DIR / name
+    if not path.exists():
+        raise SystemExit(f'{name} not found. Run prepare_data.py first.')
+    with open(path, encoding='utf-8') as handle:
+        return list(csv.DictReader(handle))
 
-    for _, row in tqdm(df.iterrows(), total=len(df)):
-        path = row["path"]
-        label = row["label"]
 
-        feat = extract_features(path)
+def speaker_of(row):
+    if row.get('speaker'):
+        return row['speaker']
+    return Path(row['path'].replace('\\', '/')).parent.name
 
-        if feat is not None:
-            X.append(feat)
-            y.append(label)
 
-    return np.array(X), np.array(y)
+def build_matrix(rows, cache_name=None):
+    cache = DATA_DIR / cache_name if cache_name else None
+    if cache and cache.exists():
+        stored = np.load(cache, allow_pickle=True)
+        if len(stored['y']) == len(rows):
+            print(f'  reusing {cache.name}')
+            return stored['X'], stored['y'], stored['speaker']
 
-X_train, y_train = process_dataframe(train_df)
-X_valid, y_valid = process_dataframe(valid_df)
+    X, y, groups, kept = [], [], [], 0
+    for i, row in enumerate(rows, 1):
+        path = SYNAPSE_DIR / row['path'].replace('\\', '/')
+        features = extract_features(str(path)) if path.exists() else None
+        if features is None:
+            continue
+        X.append(features)
+        y.append(LABELS[row['label'].strip().lower()])
+        groups.append(speaker_of(row))
+        kept += 1
+        if i % 50 == 0:
+            print(f'  featurised {i}/{len(rows)}', flush=True)
 
-print("\nTrain:", len(X_train))
-print("Valid:", len(X_valid))
+    print(f'  usable clips: {kept}/{len(rows)}')
+    X, y, groups = np.vstack(X), np.array(y), np.array(groups)
+    if cache:
+        np.savez_compressed(cache, X=X, y=y, speaker=groups)
+    return X, y, groups
 
-# =========================
-# NORMALIZATION
-# =========================
 
-scaler = StandardScaler()
-X_train = scaler.fit_transform(X_train)
-X_valid = scaler.transform(X_valid)
+# --------------------------------------------------- evaluation helpers
 
-# =========================
-# MODEL
-# =========================
+def oof_scores(factory, X, y, groups, calibrated=False):
+    """Out-of-fold probabilities, no speaker on both sides of a split.
 
-model = RandomForestClassifier(
-    n_estimators=300,
-    max_depth=10,
-    class_weight="balanced",
-    random_state=42
-)
+    With calibrated=True each fold fits the same CalibratedClassifierCV that
+    ships, so the scores are on the scale the deployed model produces. The
+    threshold has to be chosen on that scale: picking it from raw scores and
+    applying it to isotonic-calibrated output is comparing two different
+    distributions, and specificity on held-out speakers collapsed from 61%
+    to 29% when that was done.
+    """
+    splitter = StratifiedGroupKFold(n_splits=FOLDS, shuffle=True, random_state=42)
+    scores = np.zeros(len(y), dtype=float)
 
-model.fit(X_train, y_train)
+    for train_idx, test_idx in splitter.split(X, y, groups):
+        assert not (set(groups[train_idx]) & set(groups[test_idx])), 'speaker leaked'
+        if calibrated:
+            model = calibrated_estimator(factory, X[train_idx], y[train_idx], groups[train_idx])
+        else:
+            model = factory()
+        model.fit(X[train_idx], y[train_idx])
+        scores[test_idx] = model.predict_proba(X[test_idx])[:, 1]
+    return scores
 
-# =========================
-# EVALUATE
-# =========================
 
-y_pred = model.predict(X_valid)
+def calibrated_estimator(factory, X, y, groups):
+    """The estimator that ships: calibrated over speaker-disjoint inner folds."""
+    inner = StratifiedGroupKFold(n_splits=FOLDS, shuffle=True, random_state=42)
+    folds = list(inner.split(X, y, groups))
+    return CalibratedClassifierCV(factory(), method='isotonic', cv=folds)
 
-print("\n📊 Classification Report:")
-print(classification_report(y_valid, y_pred))
 
-# =========================
-# SAVE
-# =========================
+def confusion(y, scores, threshold):
+    pred = (scores >= threshold).astype(int)
+    tp = int(((pred == 1) & (y == 1)).sum())
+    fn = int(((pred == 0) & (y == 1)).sum())
+    tn = int(((pred == 0) & (y == 0)).sum())
+    fp = int(((pred == 1) & (y == 0)).sum())
+    return tp, fn, tn, fp
 
-import os
-os.makedirs("app/models", exist_ok=True)
 
-joblib.dump(model, "app/models/dementia_model.pkl")
-joblib.dump(scaler, "app/models/scaler.pkl")
+def summarise(y, scores, threshold):
+    tp, fn, tn, fp = confusion(y, scores, threshold)
+    sensitivity = tp / (tp + fn) if tp + fn else 0.0
+    specificity = tn / (tn + fp) if tn + fp else 0.0
+    return {
+        'accuracy': round((tp + tn) / len(y), 4),
+        'sensitivity': round(sensitivity, 4),
+        'specificity': round(specificity, 4),
+        'balanced_accuracy': round((sensitivity + specificity) / 2, 4),
+        'roc_auc': round(float(roc_auc_score(y, scores)), 4),
+        'true_positives': tp, 'false_negatives': fn,
+        'true_negatives': tn, 'false_positives': fp,
+    }
 
-print("\n✅ Model saved!")
+
+def threshold_for_sensitivity(y, scores, target):
+    """Highest threshold that still reaches the target sensitivity."""
+    best, best_spec = 0.5, -1.0
+    for candidate in np.unique(scores):
+        tp, fn, tn, fp = confusion(y, scores, candidate)
+        sensitivity = tp / (tp + fn) if tp + fn else 0.0
+        specificity = tn / (tn + fp) if tn + fp else 0.0
+        if sensitivity >= target and specificity > best_spec:
+            best, best_spec = float(candidate), specificity
+    return best
+
+
+# ---------------------------------------------------------------- main
+
+def main():
+    # Model choice, threshold and the fit itself all use the training split
+    # only, so the validation split stays a genuine holdout. Fitting on every
+    # clip would make any later evaluation on valid_dm.csv meaningless.
+    train_rows = load_rows('train_dm.csv')
+    valid_rows = load_rows('valid_dm.csv')
+
+    print(f'Featurising {len(train_rows)} training clips...')
+    X, y, groups = build_matrix(train_rows, 'features_train.npz')
+    print(f'Featurising {len(valid_rows)} validation clips...')
+    Xv, yv, groups_v = build_matrix(valid_rows, 'features_valid.npz')
+
+    leaked = set(groups) & set(groups_v)
+    assert not leaked, f'speaker in both splits: {sorted(leaked)[:5]}'
+
+    print(f'\ntrain {X.shape[0]} clips / {len(set(groups))} speakers, '
+          f'{int(y.sum())} dementia')
+    print(f'valid {Xv.shape[0]} clips / {len(set(groups_v))} speakers, '
+          f'{int(yv.sum())} dementia\n')
+
+    print(f'Model selection, {FOLDS}-fold speaker-disjoint CV within train:')
+    results = {}
+    for name, factory in CANDIDATES.items():
+        scores = oof_scores(factory, X, y, groups)
+        auc = roc_auc_score(y, scores)
+        results[name] = (scores, auc)
+        print(f'  {name:24} roc_auc {auc:.3f}')
+
+    best_name = max(results, key=lambda n: results[n][1])
+    best_scores = results[best_name][0]
+    print(f'\nSelected: {best_name} (roc_auc {results[best_name][1]:.3f})')
+
+    # Re-score out-of-fold through the calibrated estimator, then choose the
+    # threshold on those scores.
+    print('\nScoring out-of-fold through the calibrated estimator...')
+    best_scores = oof_scores(CANDIDATES[best_name], X, y, groups, calibrated=True)
+
+    threshold = threshold_for_sensitivity(y, best_scores, TARGET_SENSITIVITY)
+    at_default = summarise(y, best_scores, 0.5)
+    at_chosen = summarise(y, best_scores, threshold)
+
+    print(f'\n  at the default 0.5 threshold:')
+    print(f'    sensitivity {at_default["sensitivity"]*100:5.1f}%  '
+          f'specificity {at_default["specificity"]*100:5.1f}%  '
+          f'balanced {at_default["balanced_accuracy"]*100:5.1f}%')
+    print(f'  at the chosen {threshold:.3f} threshold:')
+    print(f'    sensitivity {at_chosen["sensitivity"]*100:5.1f}%  '
+          f'specificity {at_chosen["specificity"]*100:5.1f}%  '
+          f'balanced {at_chosen["balanced_accuracy"]*100:5.1f}%')
+
+    # Final model on the training split, with calibrated probabilities.
+    # Calibration folds are speaker-disjoint too, or calibration would leak.
+    print('\nFitting final calibrated model on the training split...')
+    model = calibrated_estimator(CANDIDATES[best_name], X, y, groups)
+    model.fit(X, y)
+
+    holdout_scores = model.predict_proba(Xv)[:, 1]
+    holdout = summarise(yv, holdout_scores, threshold)
+    print(f'\n  held-out speakers ({len(yv)} clips, never trained on):')
+    print(f'    sensitivity {holdout["sensitivity"]*100:5.1f}%  '
+          f'specificity {holdout["specificity"]*100:5.1f}%  '
+          f'balanced {holdout["balanced_accuracy"]*100:5.1f}%  '
+          f'auc {holdout["roc_auc"]:.3f}')
+
+    MODELS_DIR.mkdir(parents=True, exist_ok=True)
+    joblib.dump(model, MODELS_DIR / 'dementia_model.pkl')
+
+    card = {
+        'model': best_name,
+        'calibration': 'isotonic',
+        'trained_at': datetime.now(timezone.utc).isoformat(),
+        'n_clips': int(X.shape[0]),
+        'n_features': int(X.shape[1]),
+        'n_speakers': int(len(set(groups))),
+        'n_dementia_clips': int(y.sum()),
+        'evaluation': f'{FOLDS}-fold speaker-disjoint cross-validation',
+        'decision_threshold': round(threshold, 4),
+        'target_sensitivity': TARGET_SENSITIVITY,
+        'metrics_at_threshold': at_chosen,
+        'metrics_at_half': at_default,
+        'holdout_metrics': holdout,
+        'holdout_note': (
+            'Held-out speakers, never seen in training or threshold selection.'
+        ),
+        'majority_class_baseline': round(float(max(y.mean(), 1 - y.mean())), 4),
+    }
+    (MODELS_DIR / 'audio_model_card.json').write_text(
+        json.dumps(card, indent=2), encoding='utf-8'
+    )
+
+    # The scaler now lives inside the pipeline; the standalone file would be
+    # stale and predict.py no longer reads it.
+    stale = MODELS_DIR / 'scaler.pkl'
+    if stale.exists():
+        stale.unlink()
+        print('  removed the standalone scaler (now inside the pipeline)')
+
+    print(f'\nWrote {MODELS_DIR / "dementia_model.pkl"}')
+    print(f'Wrote {MODELS_DIR / "audio_model_card.json"}')
+
+
+if __name__ == '__main__':
+    main()

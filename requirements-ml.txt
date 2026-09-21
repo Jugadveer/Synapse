@@ -7,7 +7,8 @@
 #   - without faster-whisper, speech input is unavailable (typed input works)
 #   - without tensorflow/scikit-learn, the scan endpoints return an error
 
-# Semantic memory
+# Speech embeddings for the audio indicator, and semantic memory
+transformers>=4.49.0,<5.0.0
 sentence-transformers>=3.2.0,<6.0.0
 faiss-cpu>=1.9.0,<1.14.0
 torch>=2.6.0,<2.12.0
