@@ -101,51 +101,101 @@ Two separate models, two separate label vocabularies:
 
 | | Input | Labels |
 | --- | --- | --- |
-| Audio | 60 acoustic features → scikit-learn | `Dementia`, `No Dementia` |
+| Audio | wav2vec2 embeddings + acoustic summary → calibrated logistic regression | `Dementia`, `No Dementia` |
 | MRI | 128×128 slice → Keras CNN | `No Impairment`, `Very Mild`, `Mild`, `Moderate` |
 
 `synapse/utils.py` maps each vocabulary to a risk level separately, and returns
 `None` for a label it does not recognise rather than guessing.
 
-> ### The audio model does not work well enough to screen with
+> ### What the audio indicator is worth
 >
-> Measured on its own held-out split (`valid_dm.csv`, 62 usable rows):
+> Measured on **held-out speakers** — 36 people whose voices were never used
+> for training, model selection, or choosing the threshold:
 >
 > | | |
 > | --- | --- |
-> | accuracy | **59.7%** |
-> | always guessing the majority class | 58.1% |
-> | **sensitivity** (dementia caught) | **7.7%** — 2 of 26 |
-> | specificity (healthy cleared) | 97.2% — 35 of 36 |
+> | ROC-AUC | **0.756** |
+> | **sensitivity** (dementia flagged) | **85.2%** — 23 of 27 |
+> | specificity (healthy cleared) | 43.2% — 19 of 44 |
+> | balanced accuracy | 64.2% |
 >
-> It is 1.6 points better than a coin weighted to the commoner answer. It has
-> effectively learned to say "No Dementia" to everyone: **24 of the 26 people
-> in the validation set who had dementia were told they were clear.**
+> It flags most people who have dementia, at the cost of also flagging about
+> 6 in 10 who do not. That trade is deliberate: the threshold is chosen for
+> sensitivity, because a false reassurance is the failure nobody follows up.
+> Raw accuracy (59%) therefore sits *below* the majority-class baseline (62%)
+> by construction — balanced accuracy and AUC are the honest summaries.
 >
-> Sensitivity is the number that matters for screening, and this is the failure
-> mode that matters most — a false reassurance is worse than a false alarm,
-> because it is the one nobody follows up.
->
-> Reproduce with:
+> **It is still not a diagnostic tool**, and the specificity means a flag on
+> its own says little. Treat it as a prompt to talk to a doctor, nothing more.
 >
 > ```bash
 > python FinalEclipse/project/synapse/app/data/evaluate_audio_model.py
 > ```
 >
-> The cause is the approach, not a bug. Mean-pooled acoustic features (MFCC,
-> chroma, spectral contrast, ZCR) average away the temporal and linguistic
-> signal that carries most of the discriminative power. The published
-> ADReSS/DementiaBank results put this family of method at roughly 62%, against
-> ~77% for linguistic features taken from transcripts and 90%+ for multimodal
-> models — so this is performing about as well as the approach allows.
+> #### How it got here
 >
-> The pipeline already transcribes speech with Whisper, so a linguistic feature
-> path is reachable without new infrastructure. Until then this output should
-> not be presented to anyone as a screening result.
+> The original model scored **7.7% sensitivity** — it answered "No Dementia"
+> to almost everyone, telling 24 of 26 people who had dementia that they were
+> clear. Three things were wrong:
+>
+> 1. **The split leaked.** `train_test_split` stratified on the label alone
+>    put 68% of validation speakers into training too, so the evaluation
+>    partly measured whether the model recognised a familiar voice.
+>    `prepare_data.py` now splits by speaker, and asserts no overlap.
+> 2. **The threshold was never chosen.** Left at 0.5, with unbalanced classes,
+>    the model collapsed onto the majority answer. It is now selected for a
+>    sensitivity target and recorded in the model card.
+> 3. **The features were the previous generation.** Replaced (see below).
+>
+> #### What was tried
+>
+> | approach | clip ROC-AUC |
+> | --- | --- |
+> | MFCC mean-pooled (original) | 0.645 |
+> | + deltas, std, pause structure | 0.606–0.648 |
+> | Whisper transcripts → linguistic features | **0.446–0.530** |
+> | WavLM-base-plus embeddings | 0.711 |
+> | **wav2vec2-base embeddings** | 0.726 |
+> | **wav2vec2 + MFCC (shipped)** | **0.747** |
+> | same, averaged per speaker | 0.794 |
+>
+> Two negative results worth keeping:
+>
+> **Richer hand-crafted features did nothing.** Adding deltas, per-coefficient
+> standard deviations and pause statistics moved AUC by less than noise. The
+> problem was never that mean-pooling threw away the signal.
+>
+> **Linguistic features scored at chance** (0.446–0.530; every individual
+> feature within 0.08 of 0.5). This is the opposite of the published result,
+> where transcript features beat acoustic ones by a wide margin — and the
+> reason is the corpus. ADReSS uses the Cookie Theft picture description, so
+> every participant says something comparable and lexical diversity means
+> something. These are scraped celebrity interviews on unrelated topics, where
+> transcript statistics measure subject matter and interview style instead.
+>
+> **Window averaging was tried and dropped.** Averaging four windows of one
+> recording scored no better on held-out speakers (auc 0.736 against 0.732)
+> for four times the inference cost — the per-speaker gain came from averaging
+> across *different recordings* of a person, which one upload does not give.
+>
+> One subtle failure is worth recording: the threshold was first chosen from
+> raw out-of-fold scores while the shipped model is isotonic-calibrated. Those
+> are different distributions, and held-out specificity collapsed from 61% to
+> 29%. `train_model.py` now scores out-of-fold *through the calibrated
+> estimator*, so the threshold lives on the scale the deployed model produces.
+>
+> #### Why this is not at published state-of-the-art
+>
+> Reported 90%+ figures come from ADReSS/DementiaBank: balanced, clinically
+> collected, one standardised elicitation task, verified diagnoses. This
+> corpus is 352 interview clips from 178 people, scraped, with labels inferred
+> from whether someone was later reported to have dementia — the clip may well
+> predate any symptoms, and recording conditions differ systematically between
+> the two classes. Closing the remaining gap needs that data, not a better
+> classifier. Applying for DementiaBank access is the highest-value next step.
 >
 > The MRI model has no held-out split in the repository (`dataset/` is ignored
-> and absent), so it has **not** been evaluated. Its four-class output is
-> plausible on the few slices available, but that is not a measurement.
+> and absent), so it has **not** been evaluated and the interface says so.
 
 ## Tests
 
@@ -153,7 +203,7 @@ Two separate models, two separate label vocabularies:
 python -m pytest
 ```
 
-126 tests covering the memory store, reminder parsing, risk mapping, worker
+131 tests covering the memory store, reminder parsing, risk mapping, worker
 resilience, the scan endpoints, train/serve schema parity, the real inference
 paths and the voice agent end to end.
 
