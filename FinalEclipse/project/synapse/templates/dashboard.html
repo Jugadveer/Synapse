@@ -525,9 +525,13 @@
             headers: { 'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value },
             body: formData,
         })
-        .then(response => response.json())
+        .then(response => response.json().catch(() => ({ error: 'Scan failed.' })))
         .then(data => {
-            document.getElementById('resultBox').innerHTML = '🧠 Result: ' + (data.result || '-') + '<br>Confidence: ' + (data.confidence ?? '-');
+            const box = document.getElementById('resultBox');
+            box.textContent = data.error
+                ? data.error
+                : '🧠 Result: ' + data.result + ' — confidence ' + data.confidence + '%'
+                  + ' — risk ' + data.risk;
         })
         .catch(console.error);
     });
@@ -542,9 +546,13 @@
             headers: { 'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value },
             body: formData,
         })
-        .then(response => response.json())
+        .then(response => response.json().catch(() => ({ error: 'Scan failed.' })))
         .then(data => {
-            document.getElementById('mriResultBox').innerHTML = 'MRI Result: ' + (data.result || '-') + '<br>Confidence: ' + (data.confidence ?? '-');
+            const box = document.getElementById('mriResultBox');
+            box.textContent = data.error
+                ? data.error
+                : 'MRI Result: ' + data.result + ' — confidence ' + data.confidence + '%'
+                  + ' — risk ' + data.risk;
         })
         .catch(console.error);
     });
@@ -703,7 +711,19 @@
         const bubble = document.createElement('div');
         bubble.className = isUser ? 'bubble user-bubble' : 'bubble ai-bubble';
         if (!isUser) {
-            bubble.innerHTML = '<div class="ai-label"><i class="fa-solid fa-volume-high"></i> AI Companion</div>' + text;
+            const label = document.createElement('div');
+            label.className = 'ai-label';
+            const icon = document.createElement('i');
+            icon.className = 'fa-solid fa-volume-high';
+            label.appendChild(icon);
+            label.appendChild(document.createTextNode(' AI Companion'));
+            bubble.appendChild(label);
+
+            const body = document.createElement('div');
+            // textContent, never innerHTML: this string can carry back a
+            // memory the assistant was told to remember.
+            body.textContent = text;
+            bubble.appendChild(body);
         } else {
             bubble.textContent = text;
         }
@@ -737,6 +757,10 @@
                     setVoiceStatus(`Intent: ${data.intent}`);
                 }
                 if (data.type === 'status') setVoiceStatus(data.message || 'Connected');
+                if (data.type === 'reminder') {
+                    appendChatBubble('Reminder: ' + data.text, false);
+                    setVoiceStatus('Reminder');
+                }
             } else {
                 if (!voiceState.backendAudioEnabled) {
                     return;
@@ -755,7 +779,12 @@
             }
         };
 
-        voiceState.ws.onclose = () => {
+        voiceState.ws.onclose = (event) => {
+            if (event.code === 4401) {
+                // The server refused the socket: retrying cannot help.
+                setVoiceStatus('Please sign in again to use the voice assistant.');
+                return;
+            }
             setVoiceStatus('Disconnected. Reconnecting...');
             if (document.getElementById('voice-screen').classList.contains('active')) {
                 setTimeout(initVoiceAgent, 1500);
