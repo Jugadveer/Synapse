@@ -515,6 +515,46 @@
         }
     });
 
+    function renderScanResult(box, data, kind) {
+        box.textContent = '';
+        if (data.error) {
+            box.textContent = data.error;
+            return;
+        }
+
+        const headline = document.createElement('div');
+        headline.style.fontWeight = '600';
+        // "Indicator", not "Result": this is a weak signal, not a finding.
+        headline.textContent = kind + ' indicator: ' + data.result;
+        box.appendChild(headline);
+
+        const score = document.createElement('div');
+        score.textContent = 'Model probability: ' + data.confidence + '%';
+        box.appendChild(score);
+
+        const caveat = document.createElement('div');
+        caveat.style.fontSize = '0.85em';
+        caveat.style.opacity = '0.8';
+        caveat.style.marginTop = '6px';
+
+        const r = data.reliability || {};
+        if (r.validated) {
+            caveat.textContent =
+                'On held-out speakers this model catches ' + r.sensitivity +
+                '% of people who have dementia and correctly clears ' +
+                r.specificity + '% of those who do not. ' + r.note;
+        } else {
+            caveat.textContent = r.note || 'This model has not been validated.';
+        }
+        box.appendChild(caveat);
+
+        const advice = document.createElement('div');
+        advice.style.fontSize = '0.85em';
+        advice.style.marginTop = '4px';
+        advice.textContent = 'This is not a diagnosis. Talk to a doctor about any concern.';
+        box.appendChild(advice);
+    }
+
     document.getElementById('audioInput').addEventListener('change', function () {
         if (!this.files || !this.files[0]) return;
         const formData = new FormData();
@@ -527,11 +567,7 @@
         })
         .then(response => response.json().catch(() => ({ error: 'Scan failed.' })))
         .then(data => {
-            const box = document.getElementById('resultBox');
-            box.textContent = data.error
-                ? data.error
-                : '🧠 Result: ' + data.result + ' — confidence ' + data.confidence + '%'
-                  + ' — risk ' + data.risk;
+            renderScanResult(document.getElementById('resultBox'), data, 'Speech');
         })
         .catch(console.error);
     });
@@ -548,11 +584,7 @@
         })
         .then(response => response.json().catch(() => ({ error: 'Scan failed.' })))
         .then(data => {
-            const box = document.getElementById('mriResultBox');
-            box.textContent = data.error
-                ? data.error
-                : 'MRI Result: ' + data.result + ' — confidence ' + data.confidence + '%'
-                  + ' — risk ' + data.risk;
+            renderScanResult(document.getElementById('mriResultBox'), data, 'MRI');
         })
         .catch(console.error);
     });

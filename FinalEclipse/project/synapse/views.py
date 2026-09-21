@@ -129,6 +129,42 @@ def _store_upload(upload, allowed_extensions):
     return path, None
 
 
+def _reliability(scan_type):
+    """What this model's output is actually worth, from its model card.
+
+    Returned with every scan so the interface can state the limits rather
+    than presenting a probability as a finding.
+    """
+    if scan_type != 'AUDIO':
+        return {
+            'validated': False,
+            'note': 'This model has not been evaluated on a held-out set.',
+        }
+
+    try:
+        from synapse.app.data.predict import get_model_card
+        card = get_model_card()
+    except Exception:
+        card = {}
+
+    metrics = card.get('metrics_at_threshold') or {}
+    if not metrics:
+        return {'validated': False, 'note': 'No evaluation recorded for this model.'}
+
+    return {
+        'validated': True,
+        'sensitivity': round(metrics.get('sensitivity', 0) * 100, 1),
+        'specificity': round(metrics.get('specificity', 0) * 100, 1),
+        'balanced_accuracy': round(metrics.get('balanced_accuracy', 0) * 100, 1),
+        'roc_auc': metrics.get('roc_auc'),
+        'evaluation': card.get('evaluation', ''),
+        'note': (
+            'Indicative only, not a diagnosis. Measured by speaker-disjoint '
+            'cross-validation on a small corpus.'
+        ),
+    }
+
+
 def _run_scan(request, field, allowed_extensions, scan_type, predictor):
     upload = request.FILES.get(field)
     if upload is None:
@@ -171,10 +207,11 @@ def _run_scan(request, field, allowed_extensions, scan_type, predictor):
 
     return JsonResponse({
         'result': result,
-        # Both models now report a percentage. Audio returned 0-1 and MRI
-        # returned 0-100, and the dashboard rendered them with the same label.
+        # Both models report a percentage. Audio returned 0-1 and MRI returned
+        # 0-100, and the dashboard rendered them under the same label.
         'confidence': round(confidence * 100, 1),
         'risk': risk,
+        'reliability': _reliability(scan_type),
     })
 
 
