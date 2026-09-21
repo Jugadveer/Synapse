@@ -12,6 +12,9 @@ import re
 import httpx
 from django.utils import timezone
 
+from pipeline.phrasing import (
+    acknowledge_memory, answer_from_memory, confirm_reminder, describe_reminder,
+)
 from pipeline.prompts import classify_prompt, memory_analyst_prompt
 from pipeline.reminder_parser import looks_like_reminder, parse_reminder
 from pipeline.reminder_scheduler import create_reminder, pending_reminders
@@ -213,7 +216,7 @@ class QwenRouter(PipelineWorker):
             'needs_memory_storage': False, 'confidence': 0.99,
         }
         await self._respond(
-            user_text, decision, f"I'll remind you to {task} at {spoken}.", generation
+            user_text, decision, confirm_reminder(task, spoken), generation
         )
 
     async def _ask_for_reminder_detail(self, user_text, missing, task, due_at, spoken, question, generation):
@@ -268,7 +271,7 @@ class QwenRouter(PipelineWorker):
                 await self._respond(
                     user_text,
                     {'intent': 'command', 'is_fast_response': True, 'confidence': 0.99},
-                    f"I'll remind you to {task} at {pending.get('spoken_time', 'that time')}.",
+                    confirm_reminder(task, pending.get('spoken_time', '')),
                     generation,
                 )
                 return True
@@ -281,7 +284,7 @@ class QwenRouter(PipelineWorker):
             text = "You don't have any reminders set at the moment."
         else:
             first = reminders[0]
-            text = f"You asked me to remind you to {first.text} at {first.spoken_time or 'later'}."
+            text = describe_reminder(first.text, first.spoken_time)
             if len(reminders) > 1:
                 text += f" There are {len(reminders)} in total."
         await self._respond('', {'intent': 'memory_retrieve', 'is_fast_response': True}, text, generation)
@@ -526,17 +529,14 @@ User message: {user_text}"""
         return (generated or '').strip() or 'Could you give me one more detail so I remember it properly?'
 
     async def _compose_store_response(self, user_text, memory_value):
-        memory_value = (memory_value or '').strip()
-        if not memory_value:
-            return 'Got it. I will remember that.'
+        """Confirm a stored memory.
 
-        prompt = f"""Write one short, warm acknowledgement that a memory has been saved.
-Do not start with "Okay". Do not say "I found". One sentence only.
-
-They said: {user_text}
-Saved: {memory_value}"""
-        generated = await self._llm_text(prompt)
-        return (generated or '').strip() or f"Got it. I'll remember that {memory_value}."
+        This used to ask the router model for the wording. At 1.5b it answered
+        "Thank you for remembering to save that" - the assistant thanking the
+        person for doing the assistant's own job. A confirmation is a short,
+        predictable sentence, so it is built rather than generated.
+        """
+        return acknowledge_memory(memory_value or user_text)
 
     async def _compose_retrieve_response(self, user_text, decision, memory_context):
         memory_context = (memory_context or '').strip()
@@ -552,12 +552,9 @@ Context: {memory_context}"""
         if generated:
             return generated.strip()
 
-        first = memory_context.splitlines()[0].strip()
-        if first.lower().startswith('i '):
-            return 'You ' + first[2:]
-        if first.lower().startswith('my '):
-            return 'Your ' + first[3:]
-        return f"You told me {first}."
+        # The old fallback swapped only a leading "I" or "My", so a memory
+        # came back as "You left my keys on the table".
+        return answer_from_memory(memory_context.splitlines()[0])
 
     async def _llm_json(self, prompt, default=None):
         try:

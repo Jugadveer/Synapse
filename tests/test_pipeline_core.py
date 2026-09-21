@@ -209,3 +209,67 @@ def test_a_memory_with_a_hole_in_it_is_left_to_the_clarifier():
 
     for text in ('I put my glasses somewhere', 'I left it there', 'I kept them safe'):
         assert not looks_like_memory_statement(text), f'{text!r} needs a question first'
+
+
+# ------------------------------------------------------------- phrasing
+
+def test_quoted_text_is_moved_into_the_second_person():
+    """"remind me to take my tablets" must not become "take my tablets".
+
+    Echoed verbatim, the assistant ends up talking about its own tablets.
+    """
+    from pipeline.phrasing import to_second_person
+
+    assert to_second_person('take my tablets') == 'take your tablets'
+    assert to_second_person('I left my keys on the table') == 'You left your keys on the table'
+    assert to_second_person('call my daughter') == 'call your daughter'
+    assert to_second_person('I am cold') == 'You are cold'
+    assert to_second_person("I'm tired") == "You're tired"
+
+
+def test_phrasing_leaves_other_words_alone():
+    from pipeline.phrasing import to_second_person
+
+    assert to_second_person('the milk is in the fridge') == 'the milk is in the fridge'
+    # "my" inside a longer word must not be touched.
+    assert to_second_person('mystery novel') == 'mystery novel'
+
+
+def test_reminder_confirmation_uses_the_persons_terms():
+    from pipeline.phrasing import confirm_reminder
+
+    assert confirm_reminder('take my tablets', '7:37 PM') == (
+        "I'll remind you to take your tablets at 7:37 PM."
+    )
+    assert 'my tablets' not in confirm_reminder('take my tablets', '7:37 PM')
+
+
+def test_memory_confirmation_is_not_a_thank_you():
+    """At 1.5b the model answered "Thank you for remembering to save that".
+
+    The assistant was thanking the person for doing its own job, so the
+    confirmation is built rather than generated.
+    """
+    from pipeline.phrasing import acknowledge_memory
+
+    reply = acknowledge_memory('I left my keys on the kitchen table')
+    assert reply == "I'll remember that you left your keys on the kitchen table."
+    assert 'thank' not in reply.lower()
+
+
+def test_recall_reads_a_memory_back_correctly():
+    from pipeline.phrasing import answer_from_memory
+
+    # The old fallback swapped only a leading "I", leaving "your" as "my".
+    assert answer_from_memory('I left my keys on the kitchen table') == (
+        'You left your keys on the kitchen table.'
+    )
+    assert answer_from_memory('') == "I don't have that written down yet."
+
+
+def test_phrasing_handles_missing_parts():
+    from pipeline.phrasing import confirm_reminder, describe_reminder
+
+    assert confirm_reminder('', '') == "I'll remind you."
+    assert confirm_reminder('take your pills', '') == "I'll remind you to take your pills."
+    assert describe_reminder('', '') == 'You have a reminder set.'
