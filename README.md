@@ -21,7 +21,7 @@ src/synapse/                  Library imported by the project
   voice/                        Django app: sessions, memories, reminders, turns
   training/                     LoRA fine-tune for the intent router
 tests/                        pytest suite
-index.html, main.js           cognitive games, served at /game/
+index.html                    cognitive games, served at /game/
 ```
 
 `src/synapse` is a plain library, not a second Django project. It used to
@@ -122,7 +122,7 @@ Two separate models, two separate label vocabularies:
 python -m pytest
 ```
 
-85 tests covering the memory store, reminder parsing, risk mapping, worker
+98 tests covering the memory store, reminder parsing, risk mapping, worker
 resilience, the scan endpoints and train/serve schema parity.
 
 ## Fine-tuning the router
