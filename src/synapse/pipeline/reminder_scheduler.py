@@ -35,7 +35,8 @@ class ReminderScheduler:
         # user_key -> set of consumers currently listening for that person.
         self._listeners = {}
         self._task = None
-        self._wake = asyncio.Event()
+        self._wake = None
+        self._loop = None
 
     @classmethod
     def instance(cls):
@@ -47,7 +48,22 @@ class ReminderScheduler:
     # registration
     # ------------------------------------------------------------------
 
+    def _bind_to_running_loop(self):
+        """Rebind loop-bound state when the running loop has changed.
+
+        This is a process-wide singleton, so its Event and task outlive any
+        one event loop. Awaiting an Event created on a different loop raises
+        RuntimeError, which surfaced the moment two connections were served by
+        different loops.
+        """
+        loop = asyncio.get_running_loop()
+        if self._loop is not loop:
+            self._loop = loop
+            self._wake = asyncio.Event()
+            self._task = None
+
     def register(self, user_key, consumer):
+        self._bind_to_running_loop()
         self._listeners.setdefault(user_key, set()).add(consumer)
         self.start()
         # Deliver anything that fell due while they were away.
@@ -62,6 +78,7 @@ class ReminderScheduler:
             self._listeners.pop(user_key, None)
 
     def start(self):
+        self._bind_to_running_loop()
         if self._task is None or self._task.done():
             self._task = asyncio.create_task(self._run())
             logger.info("Reminder scheduler started")
