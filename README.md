@@ -101,7 +101,7 @@ Two separate models, two separate label vocabularies:
 
 | | Input | Labels |
 | --- | --- | --- |
-| Audio | wav2vec2 embeddings + acoustic summary → calibrated logistic regression | `Dementia`, `No Dementia` |
+| Audio | wav2vec2 embeddings + acoustic summary → calibrated logistic regression | `Dementia`, `Inconclusive`, `No Dementia` |
 | MRI | 128×128 slice → Keras CNN | `No Impairment`, `Very Mild`, `Mild`, `Moderate` |
 
 `synapse/utils.py` maps each vocabulary to a risk level separately, and returns
@@ -109,24 +109,28 @@ Two separate models, two separate label vocabularies:
 
 > ### What the audio indicator is worth
 >
-> Measured on **held-out speakers** — 36 people whose voices were never used
-> for training, model selection, or choosing the threshold:
+> It reports **three** outcomes, not two: no indication, inconclusive, or some
+> indication. Separation is not good enough for a binary verdict to be honest —
+> forced to choose, the model either misses cases or flags most healthy people.
 >
-> | | |
-> | --- | --- |
-> | ROC-AUC | **0.756** |
-> | **sensitivity** (dementia flagged) | **85.2%** — 23 of 27 |
-> | specificity (healthy cleared) | 43.2% — 19 of 44 |
-> | balanced accuracy | 64.2% |
+> On **held-out speakers** — 36 people never used for training, model
+> selection, or choosing the cuts:
 >
-> It flags most people who have dementia, at the cost of also flagging about
-> 6 in 10 who do not. That trade is deliberate: the threshold is chosen for
-> sensitivity, because a false reassurance is the failure nobody follows up.
-> Raw accuracy (59%) therefore sits *below* the majority-class baseline (62%)
-> by construction — balanced accuracy and AUC are the honest summaries.
+> | band | share of recordings | dementia rate within |
+> | --- | --- | --- |
+> | no indication | 15.5% | 9.1% |
+> | **inconclusive** | **66.2%** | 36.2% |
+> | some indication | 18.3% | 69.2% |
 >
-> **It is still not a diagnostic tool**, and the specificity means a flag on
-> its own says little. Treat it as a prompt to talk to a doctor, nothing more.
+> Base rate is 38%. It commits on **34%** of recordings and is **79.2%
+> correct** when it does. Forced to answer every time it was 59% correct.
+> Speaker-level ROC-AUC is 0.766 ± 0.015.
+>
+> Two thirds of the time the honest answer is "I cannot tell", and it now says
+> that instead of guessing.
+>
+> **It is not a diagnostic tool.** Even "some indication" only doubles the
+> prior. Treat it as a prompt to talk to a doctor, nothing more.
 >
 > ```bash
 > python FinalEclipse/project/synapse/app/data/evaluate_audio_model.py
@@ -149,29 +153,42 @@ Two separate models, two separate label vocabularies:
 >
 > #### What was tried
 >
-> | approach | clip ROC-AUC |
-> | --- | --- |
-> | MFCC mean-pooled (original) | 0.645 |
-> | + deltas, std, pause structure | 0.606–0.648 |
-> | Whisper transcripts → linguistic features | **0.446–0.530** |
-> | WavLM-base-plus embeddings | 0.711 |
-> | **wav2vec2-base embeddings** | 0.726 |
-> | **wav2vec2 + MFCC (shipped)** | **0.747** |
-> | same, averaged per speaker | 0.794 |
+> Averaged over 5 seeds × 5 folds, because a single split moves by several
+> points — an earlier run had me convinced layer 8 beat layer 7 on what turned
+> out to be fold noise.
 >
-> Two negative results worth keeping:
+> | approach | speaker ROC-AUC |
+> | --- | --- |
+> | MFCC mean-pooled (original) | 0.655 |
+> | + deltas, std, pause structure | no change |
+> | Whisper transcripts → linguistic features | **chance (0.49)** |
+> | WavLM-base-plus + MFCC | 0.738 |
+> | wav2vec2-**large** + MFCC (4 layers tried) | 0.749–0.753 |
+> | multi-layer combinations | 0.731–0.752 |
+> | embeddings alone, no MFCC | 0.734 |
+> | **wav2vec2-base layer 7 + MFCC (shipped)** | **0.766 ± 0.015** |
+>
+> Four negative results worth keeping, so nobody repeats them:
 >
 > **Richer hand-crafted features did nothing.** Adding deltas, per-coefficient
 > standard deviations and pause statistics moved AUC by less than noise. The
 > problem was never that mean-pooling threw away the signal.
 >
-> **Linguistic features scored at chance** (0.446–0.530; every individual
-> feature within 0.08 of 0.5). This is the opposite of the published result,
-> where transcript features beat acoustic ones by a wide margin — and the
-> reason is the corpus. ADReSS uses the Cookie Theft picture description, so
-> every participant says something comparable and lexical diversity means
-> something. These are scraped celebrity interviews on unrelated topics, where
-> transcript statistics measure subject matter and interview style instead.
+> **A bigger pretrained model did not help.** wav2vec2-large scores *below*
+> base at every layer tried, for 2.5× the inference cost.
+>
+> **Linguistic features scored at chance** — every individual feature within
+> 0.08 of 0.5. This is the opposite of the published result, where transcript
+> features beat acoustic ones comfortably, and the reason is the corpus.
+> ADReSS uses the Cookie Theft picture description, so every participant says
+> something comparable and lexical diversity means something. These are
+> scraped interviews on unrelated topics, where transcript statistics measure
+> subject matter and interview style instead.
+>
+> **Recording conditions are not a confound.** Worth stating because it was
+> the obvious worry: spectral bandwidth, rolloff, noise floor and clip
+> duration predict the label at AUC 0.50, and the class means differ by under
+> 0.2%. The model is not keying on microphone era.
 >
 > **Window averaging was tried and dropped.** Averaging four windows of one
 > recording scored no better on held-out speakers (auc 0.736 against 0.732)

@@ -65,9 +65,11 @@ FOLDS = 5
 
 # The feature vector is ~1600 wide against a few hundred clips, so every
 # candidate is either strongly regularised or reduced first. Tried and
-# rejected on this corpus: WavLM-base-plus embeddings (auc 0.711 against
-# wav2vec2's 0.747) and transcript-derived linguistic features (auc 0.49,
-# i.e. chance - see the README for why).
+# rejected on this corpus, all under repeated speaker-disjoint CV: WavLM-base-plus
+# (speaker auc 0.738), wav2vec2-large at every layer tried (0.749-0.753),
+# multi-layer combinations (0.731-0.752) and transcript-derived linguistic
+# features (chance). wav2vec2-base layer 7 plus the acoustic summary, at 0.766,
+# beat all of them. See the README.
 CANDIDATES = {
     'logistic_regression_c001': lambda: Pipeline([
         ('scale', StandardScaler()),
