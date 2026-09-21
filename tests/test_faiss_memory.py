@@ -125,3 +125,52 @@ def test_search_is_scoped_by_user(memory_store):
 def test_empty_text_is_rejected(memory_store):
     assert memory_store.store('   ', 'keys', 'fact') is False
     assert memory_store.metadata == []
+
+
+# ------------------------------------------------------------ edge cases
+
+def test_empty_query_returns_nothing(memory_store):
+    memory_store.store('my keys are on the table', 'keys', 'location', user_key='u1')
+
+    for query in ('', '   ', None):
+        assert memory_store.search(query, user_key='u1') == [], repr(query)
+    assert memory_store.search('keys', user_key='u1'), 'a real query still works'
+
+
+def test_awkward_text_round_trips(memory_store):
+    """Whatever someone says has to survive being written and read back."""
+    from models_wrapper.faiss_memory import FAISSMemory
+
+    awkward = {
+        'emoji': 'my keys are on the table with the keyring',
+        'newlines': 'first line\nsecond line',
+        'quotes': 'she said "it is on the table"',
+        'unicode': 'मैंने चाबी मेज़ पर रखी',
+        'long': 'the spare key is ' + 'very ' * 300 + 'well hidden',
+    }
+    for entity, text in awkward.items():
+        assert memory_store.store(text, entity, 'fact', user_key='u1'), entity
+
+    reopened = FAISSMemory(dimension=memory_store.dimension, memory_dir=memory_store.memory_dir)
+    stored = {r['entity']: r['text'] for r in reopened.metadata}
+    for entity, text in awkward.items():
+        assert stored[entity] == text, entity
+
+
+def test_repeated_updates_keep_one_record(memory_store):
+    for i in range(6):
+        memory_store.store(f'my keys are in place {i}', 'keys', 'location', user_key='u1')
+
+    assert len(memory_store.metadata) == 1
+    assert memory_store.metadata[0]['text'] == 'my keys are in place 5'
+    assert memory_store.index.ntotal == len(memory_store.metadata)
+    assert memory_store.embeddings.shape[0] == len(memory_store.metadata)
+
+
+def test_many_records_stay_aligned(memory_store):
+    for i in range(40):
+        memory_store.store(f'memory number {i} about something', f'thing{i}', 'fact', user_key='u1')
+
+    assert len(memory_store.metadata) == 40
+    assert memory_store.index.ntotal == 40
+    assert memory_store.embeddings.shape[0] == 40

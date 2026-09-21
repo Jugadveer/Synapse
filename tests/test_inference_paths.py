@@ -314,3 +314,39 @@ def test_whisper_transcribes_a_real_recording():
 
     assert info.language, 'no language detected'
     assert text, 'transcription was empty'
+
+
+# ------------------------------------------------- malformed model output
+
+@audio_only
+def test_a_malformed_score_produces_no_verdict():
+    """NaN compares false against everything, so it reached Inconclusive."""
+    from synapse.app.data.predict import classify_probability
+
+    assert classify_probability(float('nan')) == (None, None)
+    assert classify_probability(None) == (None, None)
+    assert classify_probability('not a number') == (None, None)
+
+
+@audio_only
+def test_confidence_can_never_exceed_certainty():
+    """A probability outside [0, 1] used to be shown as 150% confidence."""
+    from synapse.app.data.predict import classify_probability
+
+    for probability in (-0.5, 1.5, -100, 100):
+        label, confidence = classify_probability(probability)
+        assert label is not None
+        assert 0.0 <= confidence <= 1.0, f'{probability} -> {confidence}'
+
+
+@audio_only
+def test_band_edges_fall_on_the_documented_side():
+    from synapse.app.data.predict import (
+        DEMENTIA, INCONCLUSIVE, NO_DEMENTIA, band_cuts, classify_probability,
+    )
+
+    low, high = band_cuts()
+    assert classify_probability(low - 1e-6)[0] == NO_DEMENTIA
+    assert classify_probability(low)[0] == INCONCLUSIVE
+    assert classify_probability(high - 1e-6)[0] == INCONCLUSIVE
+    assert classify_probability(high)[0] == DEMENTIA
