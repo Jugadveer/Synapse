@@ -1,0 +1,31 @@
+# Inference dependencies. Large; install on top of requirements.txt.
+#
+#   pip install -r requirements.txt -r requirements-ml.txt
+#
+# Each group is optional and degrades on its own:
+#   - without sentence-transformers/faiss, semantic recall is disabled
+#   - without faster-whisper, speech input is unavailable (typed input works)
+#   - without tensorflow/scikit-learn, the scan endpoints return an error
+
+# Semantic memory
+sentence-transformers>=3.2.0,<6.0.0
+faiss-cpu>=1.9.0,<1.14.0
+torch>=2.6.0,<2.12.0
+
+# Speech to text
+faster-whisper>=1.1.0,<2.0.0
+
+# MRI classifier (Keras CNN)
+tensorflow==2.21.0
+keras==3.14.0
+pillow==12.2.0
+
+# Audio classifier (acoustic features + scikit-learn)
+librosa==0.11.0
+scikit-learn==1.8.0
+joblib==1.5.3
+soundfile==0.13.1
+
+# Used only by the offline training scripts under synapse/app/data
+pandas>=2.2.0,<3.0.0
+tqdm>=4.66.0,<5.0.0

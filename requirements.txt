@@ -1,0 +1,22 @@
+# Core application: Django, websockets, the voice pipeline's own dependencies.
+#
+# There used to be two conflicting files: FinalEclipse pinned Django 5.2.12 and
+# src/synapse pinned 4.2.7, yet both ran in the same process. FinalEclipse also
+# omitted channels, daphne and python-dotenv, all of which its settings import,
+# so installing it alone could not start the project.
+#
+# The heavy inference wheels live in requirements-ml.txt. Without them the app
+# still runs: reminders, conversation and the dashboard work, and semantic
+# recall reports that it is unavailable.
+
+Django==5.2.12
+channels==4.3.2
+daphne==4.2.3
+asgiref==3.12.1
+
+python-dotenv==1.1.1
+httpx>=0.28.1,<1.0.0
+numpy>=2.1.0,<3.0.0
+
+# Speech output
+gTTS>=2.5.4,<3.0.0
