@@ -3,67 +3,88 @@ import io
 import logging
 import os
 
+from pipeline.safety import apply_safety_rules
+from pipeline.worker import PipelineWorker
+
 logger = logging.getLogger(__name__)
 
 
-class TTSWorker:
-    """Text-to-speech worker using gTTS."""
-    
-    def __init__(self, pipeline):
-        self.pipeline = pipeline
-        self.tts_disabled = False
-    
-    async def run(self):
-        """Consume text and stream audio."""
-        while True:
-            try:
-                item = await self.pipeline.response_queue.get()
-                text = item.get('response', '')
-                if not text:
-                    continue
+class TTSWorker(PipelineWorker):
+    """Speaks the assistant's reply using gTTS."""
 
-                # Only send the text chunk here if it was not already sent by the reasoning worker.
-                if not item.get('response_chunk_sent'):
-                    await self.pipeline.consumer.send_response_chunk(text)
-                
-                # Generate streaming audio
-                await self._stream_tts(text)
-            
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                logger.error(f"TTS error: {e}")
-    
-    async def _stream_tts(self, text):
-        """Stream TTS audio."""
-        if self.tts_disabled:
+    name = 'tts'
+    input_queue_name = 'response_queue'
+
+    def __init__(self, pipeline):
+        super().__init__(pipeline)
+        self.tts_disabled = False
+
+    async def handle(self, item):
+        generation = item.get('generation')
+        # The person started speaking again: their turn wins.
+        if self.pipeline.is_stale(generation):
+            return
+
+        text = (item.get('response') or '').strip()
+        if not text:
+            return
+
+        # Every reply leaves through here, so this is where the cognitive
+        # safety rules belong.
+        text = apply_safety_rules(text, item.get('decision'), item.get('user_text'))
+        if not text:
+            return
+
+        if not item.get('response_chunk_sent'):
+            await self.pipeline.consumer.send_response_chunk(text)
+
+        latency = self.pipeline.mark_turn_latency()
+        await self._persist_turn(item, text, latency)
+        await self._speak(text, generation)
+
+    async def _persist_turn(self, item, spoken, latency):
+        """Record the exchange. ConversationTurn had a model and a migration
+        but nothing ever wrote a row, so no conversation was ever logged."""
+        save_turn = getattr(self.pipeline.consumer, 'save_turn', None)
+        if save_turn is None:
             return
         try:
-            audio_bytes = await asyncio.to_thread(self._synthesize_gtts, text)
-            if not audio_bytes:
-                return
-            
-            # Send audio bytes to client
-            await self.pipeline.consumer.send_audio_chunk(audio_bytes)
-        
+            await save_turn(
+                item.get('user_text', ''), item.get('decision', {}), spoken, latency
+            )
         except Exception as e:
-            logger.error(f"TTS generation error: {e}")
+            logger.warning(f"Could not record conversation turn: {e}")
+
+    async def _speak(self, text, generation):
+        if self.tts_disabled:
+            return
+
+        audio_bytes = await asyncio.to_thread(self._synthesize_gtts, text)
+        if not audio_bytes:
+            return
+
+        # Synthesis takes a moment; check again before playing over the user.
+        if self.pipeline.is_stale(generation):
+            logger.info("Dropping synthesised audio: turn was interrupted")
+            return
+
+        await self.pipeline.consumer.send_audio_chunk(audio_bytes)
 
     def _synthesize_gtts(self, text):
-        """Run blocking gTTS synthesis in a worker thread."""
         try:
             from gtts import gTTS
-        except Exception as import_error:
+        except ImportError as e:
             self.tts_disabled = True
-            logger.error(f"gTTS is not available; install gTTS package. Error: {import_error}")
+            logger.error(f"gTTS is not installed; speech output disabled: {e}")
             return b''
 
         lang = os.getenv('TTS_GTTS_LANG', 'en').strip() or 'en'
         try:
-            tts = gTTS(text=text, lang=lang, slow=False)
             buffer = io.BytesIO()
-            tts.write_to_fp(buffer)
+            gTTS(text=text, lang=lang, slow=False).write_to_fp(buffer)
             return buffer.getvalue()
-        except Exception as synth_error:
-            logger.error(f"gTTS synthesis failed: {synth_error}")
+        except Exception as e:
+            # Network hiccup or an unsupported language; the text reply has
+            # already been sent, so stay quiet rather than failing the turn.
+            logger.error(f"gTTS synthesis failed: {e}")
             return b''

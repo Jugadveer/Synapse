@@ -39,6 +39,12 @@ class STTWorker:
         self.last_voice_ts = 0.0
         self.audio_buffer = bytearray()
 
+        # People living with dementia pause more often and for longer, and
+        # cutting them off mid-thought is a documented failure mode for voice
+        # assistants. One second finalised the turn while they were still
+        # speaking; the wait is longer now and tunable.
+        self.max_pause_s = float(os.getenv('STT_MAX_PAUSE_SECONDS', '2.5'))
+
         self.force_finalize_event = asyncio.Event()
         self.model = None
 
@@ -57,8 +63,10 @@ class STTWorker:
             )
             await self._run_batch_mode()
                     
+        except asyncio.CancelledError:
+            raise
         except Exception as e:
-            logger.error(f"[STT] Worker failed: {e}")
+            logger.exception(f"[STT] Worker failed: {e}")
         logger.info("[STT] Worker shutdown")
 
     def _load_model(self):
@@ -70,10 +78,14 @@ class STTWorker:
             compute_type=self.compute_type,
         )
 
+    async def aclose(self):
+        """Release the model handle held by this connection."""
+        self.model = None
+
     async def _run_batch_mode(self):
         """Buffered local STT with pause detection."""
         min_voice_bytes = int(self.sample_rate * self.bytes_per_sample * 0.6)
-        max_pause_s = 1.0
+        max_pause_s = self.max_pause_s
 
         while not self.pipeline.shutdown_event.is_set():
             if self.force_finalize_event.is_set():
@@ -174,9 +186,11 @@ class STTWorker:
                 is_final=True
             )
 
+            self.pipeline.turn_start_time = time.time()
             await self.pipeline.text_queue.put({
                 'type': 'final',
-                'text': final_text
+                'text': final_text,
+                'generation': self.pipeline.generation,
             })
 
     async def force_finalize(self):

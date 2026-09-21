@@ -6,11 +6,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
-from sentence_transformers import SentenceTransformer
+
+try:
+    from sentence_transformers import SentenceTransformer
+except ImportError:  # pragma: no cover - depends on the install
+    SentenceTransformer = None
 
 try:
     import faiss
-except ImportError:
+except ImportError:  # pragma: no cover - depends on the install
     faiss = None
 
 logger = logging.getLogger(__name__)
@@ -35,7 +39,15 @@ class FAISSMemory:
         self.memory_dir = Path(memory_dir) if memory_dir else DEFAULT_MEMORY_DIR
         self.memory_dir.mkdir(parents=True, exist_ok=True)
 
-        self.embedder = SentenceTransformer('all-MiniLM-L6-v2')
+        # Without the embedding model semantic recall is unavailable, but
+        # reminders and conversation still work, so degrade instead of
+        # taking the whole websocket down at connect time.
+        self.embedder = SentenceTransformer('all-MiniLM-L6-v2') if SentenceTransformer else None
+        if self.embedder is None:
+            logger.error(
+                "sentence-transformers is not installed; semantic memory is disabled. "
+                "Install the requirements to enable recall."
+            )
 
         self.metadata = []          # list of record dicts
         self.embeddings = None      # (n, dimension) float32, row i <-> metadata[i]
@@ -159,9 +171,13 @@ class FAISSMemory:
     # index / embedding helpers
     # ------------------------------------------------------------------
 
+    @property
+    def enabled(self):
+        return self.embedder is not None
+
     def _encode(self, texts):
         """Embed a list of texts into a (n, dimension) float32 array."""
-        if not texts:
+        if not texts or not self.enabled:
             return np.zeros((0, self.dimension), dtype=np.float32)
         return np.asarray(self.embedder.encode(texts), dtype=np.float32)
 
@@ -186,7 +202,7 @@ class FAISSMemory:
 
     def search(self, query, top_k=3, user_key=None):
         """Search memory by semantic similarity, optionally scoped to one user."""
-        if not self.metadata or self.index is None or self.index.ntotal == 0:
+        if not self.enabled or not self.metadata or self.index is None or self.index.ntotal == 0:
             return []
 
         query_embedding = self._encode([query or ''])
@@ -232,6 +248,9 @@ class FAISSMemory:
         """
         text = (text or '').strip()
         if not text:
+            return False
+        if not self.enabled:
+            logger.warning("Semantic memory is disabled; not storing %r", text)
             return False
 
         conflicts = self._detect_conflicts(entity, entity_type, user_key)
