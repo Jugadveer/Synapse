@@ -14,3 +14,6 @@ __pycache__/
 *.sqlite3
 db.sqlite3
 dist/
+
+# Runtime memory store (contains personal conversation data)
+faiss_memory/
