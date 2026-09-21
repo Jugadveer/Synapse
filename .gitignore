@@ -13,7 +13,6 @@ __pycache__/
 # Local databases and generated outputs
 *.sqlite3
 db.sqlite3
-dist/
 
 # Runtime memory store (contains personal conversation data)
 faiss_memory/
