@@ -40,6 +40,8 @@ _CLOCK = re.compile(
 _BARE_UNIT = re.compile(r'\b(?:in|after)\s+(?P<amount>\d+)\b(?!\s*(?:' + '|'.join(SECONDS_PER_UNIT) + r'))')
 
 _TASK_PATTERNS = (
+    # Time first, task second: "remind me at 7 to take my pills".
+    re.compile(r'(?:^|\s)remind me\s+(?:in|at|by|after|tomorrow|tonight)(?![a-z])[^,]*?\sto\s+(?P<task>.+?)$'),
     re.compile(r'\bremind me\s+(?:to|about|that)\s+(?P<task>.+?)(?=\s+(?:in|at|by|after|tomorrow|tonight)\b|$)'),
     re.compile(r'\bset (?:a )?reminder\s+(?:to|for|about)\s+(?P<task>.+?)(?=\s+(?:in|at|by|after|tomorrow|tonight)\b|$)'),
     re.compile(r'\b(?:wake|alert) me\s+(?:to|about|for)\s+(?P<task>.+?)(?=\s+(?:in|at|by|after|tomorrow|tonight)\b|$)'),
@@ -93,7 +95,9 @@ def _parse_duration(lowered, now):
     if not match:
         return None
     amount = _to_amount(match.group('amount'))
-    if amount is None:
+    # "in 0 minutes" would schedule a reminder for the moment it was asked
+    # for, which is never what someone means.
+    if not amount or amount <= 0:
         return None
     return now + timedelta(seconds=amount * SECONDS_PER_UNIT[match.group('unit')])
 
@@ -103,18 +107,24 @@ def _parse_clock(lowered, now):
     if not match:
         return None
 
-    hour = int(match.group('hour'))
+    raw_hour = match.group('hour')
+    hour = int(raw_hour)
     minute = int(match.group('minute') or 0)
     meridiem = (match.group('meridiem') or '').replace('.', '')
 
     if hour > 23 or minute > 59:
         return None
 
+    # "00:30" and "19:00" are unambiguous 24-hour readings. Only a bare 1-12
+    # with no am/pm needs guessing; treating "00:30" as ambiguous turned it
+    # into half past twelve in the afternoon.
+    explicit_24h = hour == 0 or hour > 12 or (len(raw_hour) == 2 and raw_hour[0] == '0')
+
     if meridiem == 'pm' and hour < 12:
         hour += 12
     elif meridiem == 'am' and hour == 12:
         hour = 0
-    elif not meridiem and hour <= 12:
+    elif not meridiem and not explicit_24h and hour <= 12:
         # No am/pm given. Choose the next occurrence rather than assuming,
         # so "at 9" in the evening means tomorrow morning, not hours ago.
         candidate = now.replace(hour=hour, minute=minute, second=0, microsecond=0)

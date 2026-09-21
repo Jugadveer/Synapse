@@ -143,3 +143,69 @@ def test_due_time_is_never_in_the_past():
         result = parse(text)
         if result.due_at:
             assert result.due_at > NOW, text
+
+
+# ------------------------------------------------------------ edge cases
+
+def test_zero_duration_is_not_a_time():
+    """"in 0 minutes" would fire at the moment it was asked for."""
+    result = parse('remind me to rest in 0 minutes')
+    assert result.needs_time
+    assert result.due_at is None
+
+
+def test_negative_duration_is_not_a_time():
+    result = parse('remind me to rest in -5 minutes')
+    assert result.due_at is None
+
+
+def test_twenty_four_hour_readings_are_not_guessed():
+    """"at 00:30" was read as half past twelve in the afternoon."""
+    assert parse('remind me to call at 00:30').due_at == (
+        NOW + timedelta(days=1)).replace(hour=0, minute=30)
+    assert parse('remind me to call at 19:00').due_at == NOW.replace(hour=19, minute=0)
+    assert parse('remind me to call at 06:15').due_at == (
+        NOW + timedelta(days=1)).replace(hour=6, minute=15)
+
+
+def test_noon_and_midnight():
+    assert parse('remind me to eat at 12pm').due_at.hour == 12
+    assert parse('remind me to sleep at 12am').due_at.hour == 0
+
+
+def test_task_after_the_time_is_still_found():
+    """"remind me at 7 to take my pills" puts the task last."""
+    for text, task in (
+        ('remind me at 7 to take my pills', 'take my pills'),
+        ('remind me in 10 minutes to call my son', 'call my son'),
+        ('remind me tomorrow to see the nurse', 'see the nurse'),
+    ):
+        assert parse(text).task == task, text
+
+
+def test_case_is_ignored():
+    result = parse('REMIND ME TO TAKE MY PILLS AT 4PM')
+    assert result.due_at == NOW.replace(hour=16, minute=0)
+    assert result.task
+
+
+def test_accented_text_survives():
+    result = parse('remind me to call José at 4pm')
+    assert 'josé' in result.task.lower()
+
+
+def test_a_very_long_task_is_kept_whole():
+    """Trimming for speech happens later, in the safety rules."""
+    task = 'do ' + 'something ' * 60
+    result = parse(f'remind me to {task.strip()} in 5 minutes')
+    assert result.is_complete
+    assert len(result.task) > 200
+
+
+def test_no_reminder_is_ever_scheduled_in_the_past():
+    for text in ('remind me to x at 1am', 'remind me to x at 00:30',
+                 'remind me to x at 2:29 pm', 'remind me to x in 1 minute',
+                 'remind me to x at 11pm', 'remind me to x tomorrow'):
+        result = parse(text)
+        if result and result.due_at:
+            assert result.due_at > NOW, text
