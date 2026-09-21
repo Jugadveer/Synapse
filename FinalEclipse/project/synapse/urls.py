@@ -1,5 +1,10 @@
 from django.urls import path
 from django.shortcuts import render
+
+# The cognitive-games shell and the health check live in the voice app, which
+# is shared with the pipeline package under src/synapse.
+from voice.views import game_assets_view, game_view, status_view
+
 from . import views
 from .views import audio_scan
 
@@ -18,4 +23,7 @@ urlpatterns = [
     path('audio-scan/', audio_scan, name='audio_scan'),
     path("mri-scan/", views.mri_scan, name="mri_scan"),
     path("dashboard-data/", views.dashboard_data),
+    path('game/', game_view, name='game'),
+    path('assets/<path:path>', game_assets_view, name='game-assets'),
+    path('voice/status/', status_view, name='voice-status'),
 ]
