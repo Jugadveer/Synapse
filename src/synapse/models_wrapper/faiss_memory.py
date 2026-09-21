@@ -202,6 +202,10 @@ class FAISSMemory:
 
     def search(self, query, top_k=3, user_key=None):
         """Search memory by semantic similarity, optionally scoped to one user."""
+        # An empty query has nothing to match; without this it returned the
+        # nearest record to a zero-ish vector, i.e. an arbitrary memory.
+        if not (query or '').strip():
+            return []
         if not self.enabled or not self.metadata or self.index is None or self.index.ntotal == 0:
             return []
 
