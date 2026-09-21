@@ -151,16 +151,20 @@ def _reliability(scan_type):
     if not metrics:
         return {'validated': False, 'note': 'No evaluation recorded for this model.'}
 
+    bands = card.get('holdout_bands') or card.get('bands') or {}
     return {
         'validated': True,
-        'sensitivity': round(metrics.get('sensitivity', 0) * 100, 1),
-        'specificity': round(metrics.get('specificity', 0) * 100, 1),
-        'balanced_accuracy': round(metrics.get('balanced_accuracy', 0) * 100, 1),
         'roc_auc': metrics.get('roc_auc'),
         'evaluation': card.get('evaluation', ''),
+        # How often the model commits at all, and how often it is right when
+        # it does. These are the numbers that describe a three-band output;
+        # sensitivity alone describes a binary one it no longer produces.
+        'answers_share': round((bands.get('share_answered') or 0) * 100, 1),
+        'accuracy_when_answered': round((bands.get('accuracy_when_answered') or 0) * 100, 1),
+        'base_rate': round((bands.get('base_rate') or 0) * 100, 1),
         'note': (
-            'Indicative only, not a diagnosis. Measured by speaker-disjoint '
-            'cross-validation on a small corpus.'
+            'Indicative only, not a diagnosis. Measured on held-out speakers '
+            'from a small corpus of recorded interviews.'
         ),
     }
 

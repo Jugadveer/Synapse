@@ -23,12 +23,13 @@ class ScanResult(models.Model):
         ('LOW', 'Low'),
         ('MEDIUM', 'Medium'),
         ('HIGH', 'High'),
+        ('INCONCLUSIVE', 'Inconclusive'),
     ]
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     scan_type = models.CharField(max_length=10)  # MRI / AUDIO
     result = models.CharField(max_length=100)
     confidence = models.FloatField()
-    risk_level = models.CharField(max_length=10, choices=RISK_CHOICES)
+    risk_level = models.CharField(max_length=12, choices=RISK_CHOICES)
     created_at = models.DateTimeField(auto_now_add=True)
     def __str__(self):
         return f"{self.user.username} - {self.scan_type} - {self.risk_level}"

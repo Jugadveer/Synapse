@@ -522,14 +522,20 @@
             return;
         }
 
+        const inconclusive = data.risk === 'INCONCLUSIVE';
+
         const headline = document.createElement('div');
         headline.style.fontWeight = '600';
         // "Indicator", not "Result": this is a weak signal, not a finding.
-        headline.textContent = kind + ' indicator: ' + data.result;
+        headline.textContent = inconclusive
+            ? kind + ' check: not clear either way'
+            : kind + ' indicator: ' + data.result;
         box.appendChild(headline);
 
         const score = document.createElement('div');
-        score.textContent = 'Model probability: ' + data.confidence + '%';
+        score.textContent = inconclusive
+            ? 'This recording sits in the middle of the range, so no conclusion is drawn.'
+            : 'Model probability: ' + data.confidence + '%';
         box.appendChild(score);
 
         const caveat = document.createElement('div');
@@ -538,11 +544,14 @@
         caveat.style.marginTop = '6px';
 
         const r = data.reliability || {};
-        if (r.validated) {
+        if (r.validated && r.answers_share) {
             caveat.textContent =
-                'On held-out speakers this model catches ' + r.sensitivity +
-                '% of people who have dementia and correctly clears ' +
-                r.specificity + '% of those who do not. ' + r.note;
+                'This check only reaches a conclusion for about ' +
+                Math.round(r.answers_share) + '% of recordings, and is right ' +
+                Math.round(r.accuracy_when_answered) + '% of the time when it does. ' +
+                'For the rest it says so rather than guessing. ' + r.note;
+        } else if (r.validated) {
+            caveat.textContent = r.note;
         } else {
             caveat.textContent = r.note || 'This model has not been validated.';
         }

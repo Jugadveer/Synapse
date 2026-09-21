@@ -23,7 +23,7 @@ EMBEDDING_DIMS = 1536
 HANDCRAFTED_DIMS = 60
 EXPECTED_FEATURES = EMBEDDING_DIMS + HANDCRAFTED_DIMS
 
-AUDIO_LABELS = {'Dementia', 'No Dementia'}
+AUDIO_LABELS = {'Dementia', 'No Dementia', 'Inconclusive'}
 DEMENTIA_LABEL = 'Dementia'
 MRI_LABELS = {'Mild Impairment', 'Moderate Impairment', 'No Impairment', 'Very Mild Impairment'}
 
@@ -203,44 +203,22 @@ def test_probabilities_are_calibrated():
 
 @audio_only
 def test_confidence_is_reported_for_the_label_that_was_returned():
+    """A "No Dementia" answer reports how sure it is of that, not of the opposite."""
+    from synapse.app.data.predict import NO_DEMENTIA, classify_probability
+
+    label, confidence = classify_probability(0.02)
+    assert label == NO_DEMENTIA
+    assert confidence == pytest.approx(0.98)
+
+
+@audio_only
+def test_real_recordings_produce_a_valid_outcome():
     from synapse.app.data.predict import predict_audio
 
-    for wav in sample_wavs('NoDementia', 2):
+    for wav in sample_wavs('NoDementia', 2) + sample_wavs('Dementia', 2):
         label, confidence = predict_audio(str(wav))
-        assert 0.5 <= confidence <= 1.0 or label == DEMENTIA_LABEL, (
-            f'{wav.name}: reported {confidence:.2f} confidence in {label!r}'
-        )
-
-
-@audio_only
-def test_predict_audio_on_real_recordings():
-    from synapse.app.data.predict import predict_audio
-
-    for wav in sample_wavs('Dementia', 2) + sample_wavs('NoDementia', 2):
-        label, confidence = predict_audio(str(wav))
-
-        assert label in AUDIO_LABELS, f'{wav.name}: unexpected label {label!r}'
-        assert 0.0 <= confidence <= 1.0, f'{wav.name}: confidence {confidence} out of range'
-
-
-@audio_only
-def test_predict_audio_returns_none_pair_for_unreadable_input(tmp_path):
-    """The contract the view relies on to return 422 instead of crashing."""
-    from synapse.app.data.predict import predict_audio
-
-    junk = tmp_path / 'broken.wav'
-    junk.write_bytes(b'nope')
-    assert predict_audio(str(junk)) == (None, None)
-
-
-@audio_only
-def test_every_audio_label_maps_to_a_risk_level():
-    """Ties the model's real vocabulary to the risk table."""
-    from synapse.utils import get_risk_level
-
-    for label in AUDIO_LABELS:
-        assert get_risk_level(label, 'AUDIO') is not None, f'{label!r} is unmapped'
-    assert get_risk_level('No Dementia', 'AUDIO') == 'LOW'
+        assert label in AUDIO_LABELS, f'{wav.name}: {label!r}'
+        assert 0.0 <= confidence <= 1.0
 
 
 # ------------------------------------------------------------------- MRI

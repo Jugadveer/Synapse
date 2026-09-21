@@ -14,10 +14,14 @@ logger = logging.getLogger(__name__)
 RISK_LOW = 'LOW'
 RISK_MEDIUM = 'MEDIUM'
 RISK_HIGH = 'HIGH'
+#: The model declines to answer. At this level of separation a binary verdict
+#: is misleading in both directions, so most recordings land here honestly.
+RISK_INCONCLUSIVE = 'INCONCLUSIVE'
 
 # synapse/app/data/predict.py - binary classifier over acoustic features.
 AUDIO_RISK_BY_LABEL = {
     'no dementia': RISK_LOW,
+    'inconclusive': RISK_INCONCLUSIVE,
     'dementia': RISK_HIGH,
 }
 

@@ -26,6 +26,7 @@ CARD_PATH = MODELS_DIR / 'audio_model_card.json'
 
 DEMENTIA = 'Dementia'
 NO_DEMENTIA = 'No Dementia'
+INCONCLUSIVE = 'Inconclusive'
 
 
 @lru_cache(maxsize=1)
@@ -55,12 +56,50 @@ def decision_threshold():
         return 0.5
 
 
+def band_cuts():
+    """The two cuts bounding the inconclusive band.
+
+    Separation on this corpus does not support a binary verdict: forced to
+    choose, the model either misses cases or flags most healthy people. With
+    two cuts it answers for about a third of recordings and is right roughly
+    four times in five when it does, instead of being right three times in
+    five always.
+
+    Falling back to (t, t) reproduces the old binary behaviour if a model card
+    predates the bands.
+    """
+    card = get_model_card()
+    try:
+        low = float(card['band_low'])
+        high = float(card['band_high'])
+    except (KeyError, TypeError, ValueError):
+        threshold = decision_threshold()
+        return threshold, threshold
+    return (low, high) if low < high else (decision_threshold(),) * 2
+
+
 #: Averaging several windows of one recording was tried and dropped: on
 #: held-out speakers it scored no better (auc 0.736 against 0.732) for four
 #: times the inference cost. The per-speaker gain that motivated it came from
 #: averaging across different recordings of a person, which is not what a
 #: single upload provides. One window also matches how training rows are made.
 MAX_WINDOWS = 1
+
+
+def classify_probability(probability):
+    """Turn a calibrated probability into one of the three outcomes.
+
+    Confidence is always reported for the label returned, so a "No Dementia"
+    answer carries the probability that it is right, not the probability of
+    the thing it ruled out.
+    """
+    low, high = band_cuts()
+    if probability >= high:
+        return DEMENTIA, probability
+    if probability < low:
+        return NO_DEMENTIA, 1.0 - probability
+    # Neither end of the range: say so rather than guess.
+    return INCONCLUSIVE, probability
 
 
 def predict_audio(audio_path):
@@ -81,6 +120,4 @@ def predict_audio(audio_path):
     if np.isnan(probability):
         return None, None
 
-    if probability >= decision_threshold():
-        return DEMENTIA, probability
-    return NO_DEMENTIA, 1.0 - probability
+    return classify_probability(probability)

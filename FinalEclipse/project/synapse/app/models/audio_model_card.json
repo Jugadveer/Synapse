@@ -1,7 +1,7 @@
 {
   "model": "logistic_regression_c001",
   "calibration": "isotonic",
-  "trained_at": "2026-09-21T08:02:40.303611+00:00",
+  "trained_at": "2026-09-21T17:27:31.542018+00:00",
   "n_clips": 281,
   "n_features": 1596,
   "n_speakers": 142,
@@ -9,6 +9,30 @@
   "evaluation": "5-fold speaker-disjoint cross-validation",
   "decision_threshold": 0.254,
   "target_sensitivity": 0.8,
+  "band_low": 0.1691,
+  "band_high": 0.6054,
+  "bands": {
+    "share_no_indication": 0.1708,
+    "share_inconclusive": 0.6655,
+    "share_some_indication": 0.1637,
+    "dementia_rate_no_indication": 0.1042,
+    "dementia_rate_inconclusive": 0.3743,
+    "dementia_rate_some_indication": 0.6304,
+    "share_answered": 0.3345,
+    "accuracy_when_answered": 0.766,
+    "base_rate": 0.3701
+  },
+  "holdout_bands": {
+    "share_no_indication": 0.1549,
+    "share_inconclusive": 0.662,
+    "share_some_indication": 0.1831,
+    "dementia_rate_no_indication": 0.0909,
+    "dementia_rate_inconclusive": 0.3617,
+    "dementia_rate_some_indication": 0.6923,
+    "share_answered": 0.338,
+    "accuracy_when_answered": 0.7917,
+    "base_rate": 0.3803
+  },
   "metrics_at_threshold": {
     "accuracy": 0.5658,
     "sensitivity": 0.8173,

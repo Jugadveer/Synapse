@@ -52,6 +52,14 @@ MODELS_DIR = SYNAPSE_DIR / 'app' / 'models'
 
 #: Of the people who have dementia, the share we want flagged.
 TARGET_SENSITIVITY = 0.80
+
+#: Two cuts rather than one. Separation on this corpus is not good enough for
+#: a binary verdict to be honest: forced to choose, the model either misses
+#: cases or flags most healthy people. Below the low cut it reports no
+#: indication, above the high cut some indication, and in between - about two
+#: thirds of recordings - it says so instead of guessing.
+BAND_MIN_SENSITIVITY = 0.95   # below the low cut, few cases should be missed
+BAND_MIN_SPECIFICITY = 0.90   # above the high cut, a flag should mean something
 LABELS = {'nodementia': 0, 'dementia': 1}
 FOLDS = 5
 
@@ -187,6 +195,40 @@ def summarise(y, scores, threshold):
     }
 
 
+def band_thresholds(y, scores):
+    """Cuts for the no-indication and some-indication bands."""
+    low, high = 0.0, 1.0
+    for candidate in np.unique(scores):
+        flagged = scores >= candidate
+        if (y == 1).any() and flagged[y == 1].mean() >= BAND_MIN_SENSITIVITY:
+            low = max(low, float(candidate))
+        if (y == 0).any() and (~flagged)[y == 0].mean() >= BAND_MIN_SPECIFICITY:
+            high = min(high, float(candidate))
+    if high <= low:  # degenerate separation; refuse to answer at all
+        low, high = 0.0, 1.0
+    return low, high
+
+
+def band_summary(y, scores, low, high):
+    below = scores < low
+    middle = (scores >= low) & (scores < high)
+    above = scores >= high
+    decided = below | above
+    correct = int(((above & (y == 1)) | (below & (y == 0))).sum())
+
+    return {
+        'share_no_indication': round(float(below.mean()), 4),
+        'share_inconclusive': round(float(middle.mean()), 4),
+        'share_some_indication': round(float(above.mean()), 4),
+        'dementia_rate_no_indication': round(float(y[below].mean()), 4) if below.any() else None,
+        'dementia_rate_inconclusive': round(float(y[middle].mean()), 4) if middle.any() else None,
+        'dementia_rate_some_indication': round(float(y[above].mean()), 4) if above.any() else None,
+        'share_answered': round(float(decided.mean()), 4),
+        'accuracy_when_answered': round(correct / int(decided.sum()), 4) if decided.any() else None,
+        'base_rate': round(float(y.mean()), 4),
+    }
+
+
 def threshold_for_sensitivity(y, scores, target):
     """Highest threshold that still reaches the target sensitivity."""
     best, best_spec = 0.5, -1.0
@@ -242,6 +284,18 @@ def main():
     at_default = summarise(y, best_scores, 0.5)
     at_chosen = summarise(y, best_scores, threshold)
 
+    low, high = band_thresholds(y, best_scores)
+    bands = band_summary(y, best_scores, low, high)
+    print(f'\n  three bands, cuts at {low:.3f} and {high:.3f}:')
+    print(f'    no indication   {bands["share_no_indication"]*100:5.1f}% of clips, '
+          f'{(bands["dementia_rate_no_indication"] or 0)*100:5.1f}% of them dementia')
+    print(f'    inconclusive    {bands["share_inconclusive"]*100:5.1f}%')
+    print(f'    some indication {bands["share_some_indication"]*100:5.1f}% of clips, '
+          f'{(bands["dementia_rate_some_indication"] or 0)*100:5.1f}% of them dementia')
+    print(f'    answers {bands["share_answered"]*100:.0f}% of the time, '
+          f'{bands["accuracy_when_answered"]*100:.1f}% correct when it does '
+          f'(base rate {bands["base_rate"]*100:.0f}%)')
+
     print(f'\n  at the default 0.5 threshold:')
     print(f'    sensitivity {at_default["sensitivity"]*100:5.1f}%  '
           f'specificity {at_default["specificity"]*100:5.1f}%  '
@@ -259,6 +313,7 @@ def main():
 
     holdout_scores = model.predict_proba(Xv)[:, 1]
     holdout = summarise(yv, holdout_scores, threshold)
+    holdout_band_summary = band_summary(yv, holdout_scores, low, high)
     print(f'\n  held-out speakers ({len(yv)} clips, never trained on):')
     print(f'    sensitivity {holdout["sensitivity"]*100:5.1f}%  '
           f'specificity {holdout["specificity"]*100:5.1f}%  '
@@ -279,6 +334,10 @@ def main():
         'evaluation': f'{FOLDS}-fold speaker-disjoint cross-validation',
         'decision_threshold': round(threshold, 4),
         'target_sensitivity': TARGET_SENSITIVITY,
+        'band_low': round(low, 4),
+        'band_high': round(high, 4),
+        'bands': bands,
+        'holdout_bands': holdout_band_summary,
         'metrics_at_threshold': at_chosen,
         'metrics_at_half': at_default,
         'holdout_metrics': holdout,
