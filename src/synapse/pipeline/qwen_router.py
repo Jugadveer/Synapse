@@ -13,6 +13,7 @@ from datetime import datetime
 
 import httpx
 
+from pipeline.prompts import classify_prompt, memory_analyst_prompt
 from pipeline.reminder_parser import looks_like_reminder, parse_reminder
 from pipeline.reminder_scheduler import create_reminder, pending_reminders
 from pipeline.worker import PipelineWorker
@@ -408,24 +409,7 @@ class QwenRouter(PipelineWorker):
     # ------------------------------------------------------------------
 
     async def _classify(self, user_text):
-        prompt = f"""You are a strict decision layer for a dementia-safe voice assistant.
-Output JSON only (no markdown).
-
-Schema:
-{{
-  "intent": "command|memory_store|memory_retrieve|unclear|casual|question",
-  "is_fast": true,
-  "needs_memory": false,
-  "needs_reasoning": false,
-  "fast_response": "short direct reply if fast",
-  "memory_query": "",
-  "memory_content": "",
-  "confidence": 0.0
-}}
-
-User: "{user_text}"
-"""
-        result = await self._llm_json(prompt)
+        result = await self._llm_json(classify_prompt(user_text))
         if result:
             return result
         return {
@@ -439,47 +423,7 @@ User: "{user_text}"
 
     async def _analyze_memory_turn(self, user_text, pending=None):
         pending_text = (pending or {}).get('original_text', '')
-
-        prompt = f"""You are a memory-intent analyst for a voice assistant.
-Output JSON only.
-
-Return this schema exactly:
-{{
-  "intent": "memory_store|memory_retrieve|memory_clarify|other",
-  "is_fast": true,
-  "needs_memory": false,
-  "needs_reasoning": false,
-  "needs_memory_storage": false,
-  "needs_memory_retrieval": false,
-  "needs_clarification": false,
-  "information_completeness": {{
-    "is_complete": true,
-    "missing_fields": [],
-    "should_ask": false
-  }},
-  "memory_entity": "",
-  "memory_entity_type": "fact",
-  "memory_value": "",
-  "memory_query": "",
-  "clarification_question": "",
-  "confidence": 0.0
-}}
-
-Rules:
-- If the person is stating something they want remembered, intent=memory_store.
-- If they are asking where, what or when something was, intent=memory_retrieve.
-- Treat a memory as structured: object, type, location, time.
-- If an important field is missing or ambiguous, set is_complete=false and
-  should_ask=true and write one short clarifying question.
-- Preserve the person's own wording in memory_value.
-- Never invent details and never assume a missing one.
-- Ask at most one short, natural question.
-- Use the pending original turn as context when one is given.
-
-Pending original turn: "{pending_text}"
-User message: "{user_text}"
-"""
-        return await self._llm_json(prompt)
+        return await self._llm_json(memory_analyst_prompt(user_text, pending_text))
 
     async def _clarification_question(self, user_text, decision):
         model_question = decision.get('clarification_question')
