@@ -10,31 +10,53 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
-from pathlib import Path
+import os
 import sys
+from pathlib import Path
+
+from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
-SRC_APP_DIR = BASE_DIR.parent.parent / 'src' / 'synapse'
+REPO_ROOT = BASE_DIR.parent.parent
+SRC_APP_DIR = REPO_ROOT / 'src' / 'synapse'
 if str(SRC_APP_DIR) not in sys.path:
     sys.path.append(str(SRC_APP_DIR))
 
-# Load environment variables for the integrated src voice pipeline.
-load_dotenv(BASE_DIR.parent.parent / '.env')
-load_dotenv(SRC_APP_DIR / '.env')
+# One env file. Loading a second one did not work as intended: load_dotenv
+# does not override an existing variable, so empty placeholders in the first
+# file silently shadowed the real keys in the second and the reasoning layer
+# always saw an empty MISTRAL_API_KEY.
+load_dotenv(REPO_ROOT / '.env')
 
 
-# Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
+def _env_bool(name, default=False):
+    return os.getenv(name, str(default)).strip().lower() in ('1', 'true', 'yes', 'on')
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-cwqyetk&@k^1z3*m&e2ppqzi$4=x$ecpwvqk%92(bjyptjxdef'
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+def _env_list(name, default):
+    raw = os.getenv(name, '').strip()
+    return [item.strip() for item in raw.split(',') if item.strip()] or default
 
-ALLOWED_HOSTS = []
+
+DEBUG = _env_bool('DEBUG', True)
+
+# Read from the environment. A generated fallback keeps development working
+# without a .env, but it changes on every restart so it can never silently
+# become a production key.
+SECRET_KEY = os.getenv('SECRET_KEY', '').strip()
+if not SECRET_KEY:
+    if not DEBUG:
+        raise ImproperlyConfigured('SECRET_KEY must be set when DEBUG is off')
+    from django.core.management.utils import get_random_secret_key
+    SECRET_KEY = get_random_secret_key()
+
+ALLOWED_HOSTS = _env_list('ALLOWED_HOSTS', ['localhost', '127.0.0.1', '[::1]'])
+CSRF_TRUSTED_ORIGINS = [
+    origin for host in ALLOWED_HOSTS if host not in ('*',)
+    for origin in (f'http://{host}:8000', f'https://{host}')
+]
 
 
 # Application definition
@@ -134,8 +156,6 @@ STATIC_URL = 'static/'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
-
-import os
 
 MEDIA_ROOT = os.path.join(BASE_DIR, "media")
 MEDIA_URL = "/media/"
