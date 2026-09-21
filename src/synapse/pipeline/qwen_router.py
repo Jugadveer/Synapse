@@ -9,9 +9,8 @@ import json
 import logging
 import os
 import re
-from datetime import datetime
-
 import httpx
+from django.utils import timezone
 
 from pipeline.prompts import classify_prompt, memory_analyst_prompt
 from pipeline.reminder_parser import looks_like_reminder, parse_reminder
@@ -96,7 +95,7 @@ class QwenRouter(PipelineWorker):
     # ------------------------------------------------------------------
 
     async def _handle_reminder(self, user_text, generation, carried=None):
-        request = parse_reminder(user_text, now=datetime.now())
+        request = parse_reminder(user_text, now=timezone.localtime())
         if request is None:
             return
 
@@ -158,7 +157,7 @@ class QwenRouter(PipelineWorker):
         if missing == 'time':
             # Re-parse with the trigger restored so bare answers still parse.
             probe = user_text if looks_like_reminder(user_text) else f"remind me {user_text}"
-            request = parse_reminder(probe, now=datetime.now())
+            request = parse_reminder(probe, now=timezone.localtime())
             if request and request.due_at:
                 await self._handle_reminder(
                     f"remind me to {pending['task']} {user_text}"

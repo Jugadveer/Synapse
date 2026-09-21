@@ -6,7 +6,7 @@ memory aid a reminder at the wrong hour is worse than one more question.
 """
 
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 TRIGGERS = (
     'remind me', 'set a reminder', 'set reminder', 'remember to remind',
@@ -141,11 +141,17 @@ def _parse_task(lowered):
 
 
 def parse_reminder(text, now=None):
-    """Parse `text` into a ReminderRequest, or return None if not a reminder."""
+    """Parse `text` into a ReminderRequest, or return None if not a reminder.
+
+    `now` should be timezone-aware; the result inherits its tzinfo. A naive
+    value produces a naive due_at, which Django stores as though it were UTC -
+    a reminder set for four in the afternoon would then fire at whatever local
+    time four PM UTC happens to be.
+    """
     if not looks_like_reminder(text):
         return None
 
-    now = now or datetime.now()
+    now = now or datetime.now(timezone.utc).astimezone()
     lowered = (text or '').lower().strip()
 
     task = _parse_task(lowered)

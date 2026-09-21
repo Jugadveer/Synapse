@@ -74,24 +74,46 @@ class _FakeIndexFlatL2:
         return best.astype(np.float32), order.astype(np.int64)
 
 
+def _importable(name):
+    try:
+        __import__(name)
+        return True
+    except Exception:
+        return False
+
+
+#: True when the suite is running against the real wheels rather than the
+#: stand-ins. Tests that need genuine model behaviour skip unless this is set.
+REAL_ML = _importable('sentence_transformers') and _importable('faiss')
+REAL_AUDIO = _importable('librosa') and _importable('sklearn') and _importable('joblib')
+REAL_VISION = _importable('tensorflow')
+REAL_STT = _importable('faster_whisper')
+
+
 def _install_ml_stubs():
-    if 'sentence_transformers' not in sys.modules:
+    """Use the real libraries when installed; fall back to stand-ins.
+
+    The stubs exist so the suite runs on a machine without multi-gigabyte
+    wheels. They must never shadow a real install, or the tests would stop
+    exercising the thing they are meant to cover.
+    """
+    if 'sentence_transformers' not in sys.modules and not _importable('sentence_transformers'):
         module = types.ModuleType('sentence_transformers')
         module.SentenceTransformer = _FakeSentenceTransformer
         sys.modules['sentence_transformers'] = module
 
-    if 'faiss' not in sys.modules:
+    if 'faiss' not in sys.modules and not _importable('faiss'):
         module = types.ModuleType('faiss')
         module.IndexFlatL2 = _FakeIndexFlatL2
         sys.modules['faiss'] = module
 
 
 def _install_predictor_stubs():
-    """Stand in for the two inference modules.
+    """Stand in for the two inference modules in the view tests.
 
-    Importing them for real pulls in joblib, librosa and tensorflow. The views
-    import them lazily inside the request, so a stub module here is enough and
-    each test can set the return value it needs.
+    The view tests are about auth, validation and cleanup, not about model
+    accuracy, and a real prediction takes seconds. tests/test_inference_paths.py
+    imports the genuine modules instead.
     """
     for name in ('synapse.app.data.predict', 'synapse.predict'):
         module = types.ModuleType(name)
@@ -118,8 +140,15 @@ def audio_predictor():
 
 
 @pytest.fixture
+def real_ml_required():
+    if not REAL_ML:
+        pytest.skip('sentence-transformers / faiss not installed')
+
+
+@pytest.fixture
 def memory_store(tmp_path):
     """A FAISSMemory rooted in a throwaway directory."""
     from models_wrapper.faiss_memory import FAISSMemory
 
+    # all-MiniLM-L6-v2 and the stand-in both produce 384 dimensions.
     return FAISSMemory(dimension=DIMENSION, memory_dir=tmp_path / 'faiss_memory')
