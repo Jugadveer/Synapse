@@ -31,6 +31,12 @@ drifted from the copy that actually ran.
 
 ## Setup
 
+The router needs [Ollama](https://ollama.com) with a small model:
+
+```bash
+ollama pull qwen2.5:1.5b-instruct
+```
+
 ```bash
 python -m venv .venv
 .venv/Scripts/activate
@@ -67,7 +73,7 @@ shadowed the real keys in the second.
 | `SECRET_KEY` | Django secret. Required when `DEBUG=False`. |
 | `DEBUG` | `True` for development. |
 | `ALLOWED_HOSTS` | Comma-separated; defaults to localhost. |
-| `OLLAMA_URL`, `OLLAMA_QWEN_MODEL` | Intent router. |
+| `OLLAMA_URL`, `OLLAMA_QWEN_MODEL` | Intent router. Default `qwen2.5:1.5b-instruct`. |
 | `MISTRAL_API_KEY`, `MISTRAL_MODEL` | Reasoning layer. |
 | `TTS_GTTS_LANG` | Speech output language. |
 | `STT_MAX_PAUSE_SECONDS` | Silence before a turn is finalised (default `2.5`). |
@@ -81,8 +87,18 @@ audio ─► STT ─► router ─┬─► clarification ─► reasoning ─�
                         └─────────── fast reply ────────┴─► safety ─► TTS ─► audio
 ```
 
-- The **router** runs a fine-tuned Qwen 2.5 3B through Ollama. Reminders are
-  handled deterministically in Python so they behave identically every time.
+- The **router** runs Qwen 2.5 through Ollama — `qwen2.5:1.5b-instruct` by
+  default, about 1.2 GB and small enough to sit entirely on a 4 GB GPU.
+  `0.5b` was measured and rejected: it answers `memory_store` to everything,
+  including greetings, at confidence 1.0.
+- **Reminders and clear memory statements are handled in Python**, not by the
+  model, so they behave identically every time. A 1.5b router calls "I left my
+  keys on the kitchen table" a *retrieval*, which stored nothing and answered
+  "Okay."; the deterministic rules settle the unambiguous cases and leave the
+  rest to the model.
+- A **small-talk guard** stops a weak router filing "Hello there" as a memory.
+  The slot checks miss that case, because a greeting lacks both an object and
+  a location rather than exactly one of them.
 - The **clarification gate** asks one short question rather than acting on a
   guess — the incremental-clarification pattern from the dementia-dialogue
   literature.

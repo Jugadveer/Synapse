@@ -23,6 +23,72 @@ LIST_REMINDERS = re.compile(
     r'\b(what|which|any|list|tell me).{0,25}\breminders?\b|\bmy reminders?\b'
 )
 
+#: Words that carry no memory on their own. A turn made only of these is small
+#: talk, whatever the router says it is.
+SMALL_TALK = frozenset({
+    'hello', 'hi', 'hey', 'good', 'morning', 'afternoon', 'evening', 'night',
+    'thanks', 'thank', 'you', 'ok', 'okay', 'yes', 'no', 'yeah', 'nope',
+    'bye', 'goodbye', 'how', 'are', 'is', 'it', 'going', 'please', 'sorry',
+    'right', 'sure', 'fine', 'well', 'today', 'and', 'the', 'a', 'i', 'am',
+    'im', 'm', 'very', 'much', 'lovely', 'nice', 'to', 'see', 'hear', 'from',
+    'there',
+})
+
+
+#: A question, however it is phrased. Checked first, because "where did I put
+#: my glasses" contains the same verb as "I put my glasses on the shelf".
+#: Word boundaries are spelled with \s rather than \b so the pattern
+#: survives being edited by tools that mangle backslash escapes.
+QUESTION = re.compile(
+    r"^\s*(?:where|what|when|who|whom|which|how|why|do|does|did|can|could"
+    r"|would|will|have|has|is|are|am|shall|should)(?:\s|$)"
+    r"|\?\s*$"
+)
+
+#: Declarative statements complete enough to store as they stand.
+#: The "I left/put/kept" form needs a place as well as an object: "I put my
+#: glasses somewhere" is a memory with a hole in it, and belongs on the
+#: clarification path that asks one short question rather than here.
+MEMORY_STATEMENT = re.compile(
+    r"(?:^|\s)(?:"
+    r"i\s+(?:left|put|kept|placed|stored|hid|moved|parked)\s+.*?"
+    r"\s(?:in|on|at|under|behind|beside|by|near|inside)\s+\w"
+    r"|please\s+remember|remember\s+that"
+    r"|don\'?t\s+let\s+me\s+forget"
+    r"|my\s+[a-z]+\s+(?:is|are|was|were)\s+"
+    r"(?:in|on|at|under|behind|beside|called|named)\s)"
+)
+
+
+def looks_like_memory_statement(text):
+    """Recognise a memory worth storing without asking the model.
+
+    Reminders are handled deterministically because that makes them behave the
+    same way every time; memory statements need the same treatment. A 1.5b
+    router classifies "I left my keys on the kitchen table" as a retrieval, so
+    nothing gets stored and the person is told "Okay." The rule below settles
+    the unambiguous cases and leaves the rest to the model.
+    """
+    lowered = (text or '').strip().lower()
+    if not lowered or QUESTION.search(lowered):
+        return False
+    return bool(MEMORY_STATEMENT.search(lowered)) and is_storable(lowered)
+
+
+def is_storable(text):
+    """Whether a turn contains anything worth remembering.
+
+    A small router classifies almost anything as memory_store - the 0.5b model
+    answers that for greetings, at confidence 1.0 - and the slot checks do not
+    catch it, because a greeting is missing both an object and a location
+    rather than exactly one of the two. Without this, "Hello there" ends up in
+    the person's memories.
+    """
+    tokens = re.findall(r"[a-z']+", (text or '').lower())
+    if len(tokens) < 3:
+        return False
+    return not all(token in SMALL_TALK for token in tokens)
+
 
 class QwenRouter(PipelineWorker):
     """Classifies each turn and dispatches it."""
@@ -71,6 +137,21 @@ class QwenRouter(PipelineWorker):
         if pending:
             if await self._resume_memory(user_text, pending, generation):
                 return
+
+        if looks_like_memory_statement(user_text):
+            self.pipeline.pending_memory_clarification = None
+            decision = self._normalize({
+                'intent': 'memory_store', 'is_fast': True, 'needs_memory': True,
+                'needs_memory_storage': True, 'confidence': 0.95,
+            })
+            await self._store_and_confirm(
+                user_text, decision,
+                entity=self._entity_for(user_text, decision),
+                entity_type='location',
+                value=user_text,
+                generation=generation,
+            )
+            return
 
         memory_decision = await self._analyze_memory_turn(user_text)
         if memory_decision and memory_decision.get('intent') in (
@@ -275,6 +356,14 @@ class QwenRouter(PipelineWorker):
         return True
 
     async def _store_and_confirm(self, user_text, decision, entity, entity_type, value, generation):
+        if not is_storable(value):
+            logger.info(f'Refusing to store small talk as a memory: {value!r}')
+            await self._respond(
+                user_text, {**decision, 'intent': 'casual', 'needs_memory_storage': False},
+                'Hello. It is good to hear from you.', generation,
+            )
+            return
+
         stored = await self.pipeline.memory_worker.store_memory(
             entity=entity, entity_type=entity_type, value=value
         )
@@ -452,7 +541,7 @@ Saved: {memory_value}"""
     async def _compose_retrieve_response(self, user_text, decision, memory_context):
         memory_context = (memory_context or '').strip()
         if not memory_context:
-            return decision.get('fast_response') or "I don't have that written down yet."
+            return "I don't have that written down yet."
 
         prompt = f"""Answer the person's question in one short sentence using the context.
 Do not say "I found". Do not start with "Okay".

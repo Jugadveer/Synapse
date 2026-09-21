@@ -38,6 +38,13 @@ HANDCRAFTED_DIMS = 60
 @lru_cache(maxsize=1)
 def _speech_model():
     """Load the pretrained speech model once per process."""
+    # transformers probes for a TensorFlow backend when TF is importable, and
+    # then needs the Keras 2 shim, which we do not ship. Only the PyTorch path
+    # is used here, so say so before the first transformers import rather than
+    # carrying an extra 600 MB dependency to satisfy a probe.
+    os.environ.setdefault('USE_TF', '0')
+    os.environ.setdefault('TRANSFORMERS_NO_TF', '1')
+
     import torch
     from transformers import AutoFeatureExtractor, AutoModel
 

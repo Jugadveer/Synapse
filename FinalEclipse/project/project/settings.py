@@ -14,6 +14,13 @@ import os
 import sys
 from pathlib import Path
 
+# Before anything imports transformers - sentence-transformers does so at
+# module load. With TensorFlow installed, transformers probes for a TF backend
+# and then needs the Keras 2 shim, which is not shipped; the import raises and
+# takes the websocket connection down with it. Only the PyTorch path is used.
+os.environ.setdefault('USE_TF', '0')
+os.environ.setdefault('TRANSFORMERS_NO_TF', '1')
+
 from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
 

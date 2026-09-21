@@ -7,9 +7,15 @@ deterministic stand-ins that honour the same contracts the real libraries do.
 """
 
 import hashlib
+import os
 import sys
 import types
 from pathlib import Path
+
+# See FinalEclipse/project/project/settings.py: transformers must not probe for
+# a TensorFlow backend, and this has to happen before the first import of it.
+os.environ.setdefault('USE_TF', '0')
+os.environ.setdefault('TRANSFORMERS_NO_TF', '1')
 
 import numpy as np
 import pytest

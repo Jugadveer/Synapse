@@ -124,3 +124,88 @@ def test_not_found_is_softened():
 def test_safety_rules_handle_empty_input():
     assert apply_safety_rules('') == ''
     assert apply_safety_rules(None) is None
+
+
+# --------------------------------------------------- small-talk guardrail
+
+def test_greetings_are_not_stored_as_memories():
+    """A small router calls almost everything memory_store.
+
+    The 0.5b model answers memory_store for "Hello there" at confidence 1.0,
+    and the slot checks do not catch it: a greeting is missing both an object
+    and a location rather than exactly one of them.
+    """
+    from pipeline.qwen_router import is_storable
+
+    for text in ('Hello there', 'Good morning, how are you?', 'Thanks very much',
+                 'yes', 'ok', 'Bye', 'Thank you'):
+        assert not is_storable(text), f'{text!r} would be stored as a memory'
+
+
+def test_real_memories_are_still_stored():
+    from pipeline.qwen_router import is_storable
+
+    for text in ('I left my keys on the kitchen table',
+                 'My daughter is called Priya',
+                 'I put the tablets in the bedside drawer',
+                 'I read up to page 78'):
+        assert is_storable(text), f'{text!r} should be storable'
+
+
+def test_empty_input_is_not_storable():
+    from pipeline.qwen_router import is_storable
+
+    assert not is_storable('')
+    assert not is_storable(None)
+    assert not is_storable('   ')
+
+
+# ------------------------------------------- deterministic memory statements
+
+def test_clear_memory_statements_are_recognised_without_the_model():
+    """A 1.5b router calls "I left my keys on the table" a retrieval.
+
+    Nothing then gets stored and the person is told "Okay." Reminders avoid
+    that by being handled in Python; the unambiguous memory statements are
+    settled the same way, and the rest still go to the model.
+    """
+    from pipeline.qwen_router import looks_like_memory_statement
+
+    for text in ('I left my keys on the kitchen table',
+                 'I put the tablets in the bedside drawer',
+                 'I kept my wallet in the blue bowl',
+                 'Please remember that my appointment is Tuesday',
+                 'My daughter is called Priya'):
+        assert looks_like_memory_statement(text), f'{text!r} should be stored'
+
+
+def test_questions_are_never_treated_as_statements():
+    """"Where did I put my glasses" shares its verb with the statement form."""
+    from pipeline.qwen_router import looks_like_memory_statement
+
+    for text in ('Where did I put my glasses?',
+                 'Where did I leave my keys',
+                 'what did i put there',
+                 'Do you remember where I put my wallet',
+                 'Can you remember where I left it',
+                 'Is my wallet on the table'):
+        assert not looks_like_memory_statement(text), f'{text!r} is a question'
+
+
+def test_small_talk_is_not_a_memory_statement():
+    from pipeline.qwen_router import looks_like_memory_statement
+
+    for text in ('Hello there', 'Thanks very much', '', None):
+        assert not looks_like_memory_statement(text)
+
+
+def test_a_memory_with_a_hole_in_it_is_left_to_the_clarifier():
+    """"I put my glasses somewhere" has no place, so it must be asked about.
+
+    Storing it as it stands would record a memory that cannot answer the
+    question it exists to answer.
+    """
+    from pipeline.qwen_router import looks_like_memory_statement
+
+    for text in ('I put my glasses somewhere', 'I left it there', 'I kept them safe'):
+        assert not looks_like_memory_statement(text), f'{text!r} needs a question first'
