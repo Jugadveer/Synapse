@@ -22,7 +22,6 @@ class AsyncPipeline:
         self.audio_queue = asyncio.Queue(maxsize=100)
         self.text_queue = asyncio.Queue(maxsize=50)
         self.intent_queue = asyncio.Queue(maxsize=50)
-        self.clarification_queue = asyncio.Queue(maxsize=50)  # 🔥 Confidence/slot gating
         self.gpt_input_queue = asyncio.Queue(maxsize=50)  # 🔥 After clarification check
         self.response_queue = asyncio.Queue(maxsize=50)
         self.tts_queue = asyncio.Queue(maxsize=100)

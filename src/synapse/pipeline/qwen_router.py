@@ -134,22 +134,6 @@ class QwenRouter:
                             self.pipeline.pending_memory_clarification = None
                             await self.pipeline.consumer.send_decision(decision)
 
-                            if decision.get('needs_clarification'):
-                                clarification = decision.get('clarification_question') or decision.get('fast_response') or 'Could you tell me a little more?'
-                                self.pipeline.pending_memory_clarification = {
-                                    'original_text': user_text,
-                                    'entity': decision.get('memory_entity') or self._extract_memory_entity(user_text, decision),
-                                    'entity_type': decision.get('memory_entity_type', 'fact'),
-                                    'memory_content': decision.get('memory_content') or user_text,
-                                    'clarification_prompt': clarification,
-                                }
-                                await self.pipeline.response_queue.put({
-                                    'user_text': user_text,
-                                    'decision': decision,
-                                    'response': clarification,
-                                })
-                                continue
-
                             decision['needs_memory_storage'] = True
 
                             await self.pipeline.memory_worker.store_memory(
@@ -379,93 +363,6 @@ User: "{user_text}""".strip()
             'needs_reasoning': False,
             'fast_response': 'Sure. Tell me when to remind you, for example: in 10 minutes.',
             'confidence': 0.9,
-        }
-
-    def _handle_local_memory_statement(self, user_text):
-        """Detect declarative memory statements before model classification."""
-        text = (user_text or '').strip()
-        lowered = text.lower()
-
-        if 'book' in lowered and ('page' in lowered or 'read' in lowered or 'reading' in lowered):
-            return {
-                'intent': 'memory_store',
-                'is_fast': True,
-                'needs_memory': True,
-                'needs_reasoning': False,
-                'needs_memory_storage': False,
-                'needs_clarification': True,
-                'memory_content': text,
-                'fast_response': 'Which book do you mean?',
-                'confidence': 0.6,
-            }
-
-        store_triggers = (
-            'i left', 'i kept', 'i put', 'i placed', 'my', 'remember that', 'please remember'
-        )
-        if not any(trigger in lowered for trigger in store_triggers):
-            return None
-
-        object_terms = (
-            'key', 'keys', 'wallet', 'glasses', 'phone', 'remote', 'papers', 'documents',
-            'book', 'books', 'tablet', 'medication', 'medicine', 'pill', 'pillbox', 'card', 'cards'
-        )
-        location_terms = (
-            'desk', 'table', 'counter', 'shelf', 'drawer', 'cabinet', 'nightstand',
-            'kitchen', 'office', 'room', 'bed', 'sofa', 'chair'
-        )
-
-        has_object = any(term in lowered for term in object_terms)
-        has_location = any(term in lowered for term in location_terms)
-
-        if not (has_object and has_location):
-            return None
-
-        return {
-            'intent': 'memory_store',
-            'is_fast': True,
-            'needs_memory': True,
-            'needs_reasoning': False,
-            'needs_memory_storage': True,
-            'memory_content': text,
-            'fast_response': 'Got it. I will remember that.',
-            'confidence': 0.95,
-        }
-
-    def _handle_local_memory_retrieve(self, user_text):
-        """Detect common retrieval questions and extract a search query generically."""
-        text = (user_text or '').strip()
-        lowered = text.lower()
-
-        retrieval_triggers = (
-            'where did i leave', 'where did i put', 'where is my', 'where are my',
-            'do you remember where', 'can you find', 'what did i say about',
-            'remind me where', 'i forgot where', 'where did we leave'
-        )
-        if not any(trigger in lowered for trigger in retrieval_triggers):
-            return None
-
-        query = self._extract_memory_query(text)
-        if not query:
-            return {
-                'intent': 'memory_retrieve',
-                'is_fast': True,
-                'needs_memory': True,
-                'needs_reasoning': False,
-                'needs_memory_retrieval': True,
-                'memory_query': text,
-                'fast_response': 'Let me check my memory for that.',
-                'confidence': 0.8,
-            }
-
-        return {
-            'intent': 'memory_retrieve',
-            'is_fast': True,
-            'needs_memory': True,
-            'needs_reasoning': False,
-            'needs_memory_retrieval': True,
-            'memory_query': query,
-            'fast_response': 'Let me check my memory for that.',
-            'confidence': 0.92,
         }
 
     def _extract_memory_query(self, user_text):
@@ -725,7 +622,3 @@ User message: "{user_text}""".strip()
             return 'memory'
 
         return 'user'
-
-    def _handle_pending_memory_clarification(self, user_text):
-        """Legacy no-op kept for compatibility."""
-        return None
