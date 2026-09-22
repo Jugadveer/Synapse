@@ -51,24 +51,24 @@ def signup_view(request):
     age = request.POST.get('age')
 
     if not username or not password:
-        return render(request, 'signup.html', {'error': 'Username and password are required.'})
+        return render(request, 'landing.html', {'error': 'Username and password are required.'})
 
     if User.objects.filter(username=username).exists():
-        return render(request, 'signup.html', {'error': 'That username is already taken.'})
+        return render(request, 'landing.html', {'error': 'That username is already taken.'})
 
     try:
         # create_user does not run the configured validators on its own.
         validate_password(password)
     except ValidationError as exc:
-        return render(request, 'signup.html', {'error': ' '.join(exc.messages)})
+        return render(request, 'landing.html', {'error': ' '.join(exc.messages)})
 
     try:
         # A non-numeric age used to reach the IntegerField and raise a 500.
         age = int(age)
     except (TypeError, ValueError):
-        return render(request, 'signup.html', {'error': 'Please enter your age as a number.'})
+        return render(request, 'landing.html', {'error': 'Please enter your age as a number.'})
     if not 0 < age < 130:
-        return render(request, 'signup.html', {'error': 'Please enter a valid age.'})
+        return render(request, 'landing.html', {'error': 'Please enter a valid age.'})
 
     with transaction.atomic():
         user = User.objects.create_user(username=username, password=password, email=email)
@@ -88,7 +88,7 @@ def login_view(request):
     user = authenticate(request, username=username, password=password)
 
     if user is None:
-        return render(request, 'login.html', {'error': 'Incorrect username or password.'})
+        return render(request, 'landing.html', {'error': 'Incorrect username or password.'})
 
     login(request, user)
     return redirect('/dashboard/')

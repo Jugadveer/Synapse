@@ -281,6 +281,11 @@
     <h1 id="formTitle">Welcome Back</h1>
     <p class="desc" id="formDesc">Sign in to continue</p>
 <form id="authForm" method="POST">
+        {% if error %}
+        <p class="auth-error" role="alert"
+           style="color:#b3261e; background:#fdecea; border-radius:12px;
+                  padding:10px 14px; margin:0 0 12px; font-size:0.9em;">{{ error }}</p>
+        {% endif %}
     {% csrf_token %}
 
     <!-- Signup Fields -->
