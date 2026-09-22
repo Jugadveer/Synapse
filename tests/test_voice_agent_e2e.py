@@ -8,6 +8,7 @@ than fetched.
 """
 
 import asyncio
+import json
 
 import pytest
 from channels.testing import WebsocketCommunicator
@@ -84,22 +85,33 @@ async def open_socket(user):
     return communicator
 
 
-async def say(communicator, text):
-    """Send a turn and collect everything the assistant sends back."""
+async def say(communicator, text, until='audio'):
+    """Send a turn and collect what comes back.
+
+    Reads to the end of the turn - the audio frame is the last thing sent -
+    rather than draining until a timeout. Stopping earlier leaves that frame
+    queued, and the next turn then reads it first and returns nothing. asgiref's ApplicationCommunicator cancels the
+    application task whenever receive_output times out, so a helper that
+    drains to empty kills the connection it is testing and the disconnect that
+    follows fails.
+    """
     await communicator.send_json_to({'type': 'final_transcript', 'text': text})
 
     messages, audio = [], []
-    deadline = asyncio.get_event_loop().time() + TURN_TIMEOUT
-    while asyncio.get_event_loop().time() < deadline:
+    loop = asyncio.get_event_loop()
+    deadline = loop.time() + TURN_TIMEOUT
+
+    while loop.time() < deadline:
         try:
-            frame = await communicator.receive_from(timeout=3)
+            frame = await communicator.receive_from(timeout=deadline - loop.time())
         except asyncio.TimeoutError:
             break
         if isinstance(frame, bytes):
             audio.append(frame)
-            break  # audio is the last thing in a turn
-        import json as _json
-        messages.append(_json.loads(frame))
+            break                      # audio is the last thing in a turn
+        messages.append(json.loads(frame))
+        if until == 'reply' and messages[-1].get('type') == 'response_chunk':
+            break
     return messages, audio
 
 
@@ -127,7 +139,10 @@ async def test_a_turn_produces_a_spoken_reply(user, ollama, quiet_tts):
         assert quiet_tts, 'nothing was sent to speech synthesis'
         assert audio, 'no audio frame reached the client'
     finally:
-        await communicator.disconnect()
+        try:
+            await communicator.disconnect()
+        except asyncio.CancelledError:
+            pass
 
 
 async def test_router_was_actually_called(user, ollama, quiet_tts):
@@ -136,7 +151,10 @@ async def test_router_was_actually_called(user, ollama, quiet_tts):
         await say(communicator, 'Hello there')
         assert ollama.prompts, 'the router never called the model'
     finally:
-        await communicator.disconnect()
+        try:
+            await communicator.disconnect()
+        except asyncio.CancelledError:
+            pass
 
 
 # ---------------------------------------------------------------- reminders
@@ -158,7 +176,10 @@ async def test_reminder_turn_creates_a_reminder(user, ollama, quiet_tts):
         assert reminder.user_key == str(user.pk)
         assert reminder.is_pending
     finally:
-        await communicator.disconnect()
+        try:
+            await communicator.disconnect()
+        except asyncio.CancelledError:
+            pass
 
 
 async def test_reminder_without_a_time_asks_then_schedules(user, ollama, quiet_tts):
@@ -179,7 +200,10 @@ async def test_reminder_without_a_time_asks_then_schedules(user, ollama, quiet_t
         reminder = await Reminder.objects.aget()
         assert reminder.text == 'call my daughter'
     finally:
-        await communicator.disconnect()
+        try:
+            await communicator.disconnect()
+        except asyncio.CancelledError:
+            pass
 
 
 async def test_listing_reminders(user, ollama, quiet_tts):
@@ -191,7 +215,10 @@ async def test_listing_reminders(user, ollama, quiet_tts):
         text = ' '.join(replies(messages)).lower()
         assert 'tablets' in text, f'reminder not listed back: {text!r}'
     finally:
-        await communicator.disconnect()
+        try:
+            await communicator.disconnect()
+        except asyncio.CancelledError:
+            pass
 
 
 # ------------------------------------------------------------------ memory
@@ -207,7 +234,10 @@ async def test_memory_store_then_retrieve(user, ollama, quiet_tts, real_ml_requi
         answer = ' '.join(replies(messages)).lower()
         assert answer, 'retrieval produced no reply'
     finally:
-        await communicator.disconnect()
+        try:
+            await communicator.disconnect()
+        except asyncio.CancelledError:
+            pass
 
 
 async def test_incomplete_memory_asks_one_question(user, ollama, quiet_tts):
@@ -219,7 +249,10 @@ async def test_incomplete_memory_asks_one_question(user, ollama, quiet_tts):
         assert reply.count('?') <= 1, f'more than one question in a turn: {reply!r}'
         assert '?' in reply, f'expected a clarifying question, got {reply!r}'
     finally:
-        await communicator.disconnect()
+        try:
+            await communicator.disconnect()
+        except asyncio.CancelledError:
+            pass
 
 
 # --------------------------------------------------------------- lifecycle
@@ -232,7 +265,10 @@ async def test_turn_is_recorded(user, ollama, quiet_tts):
         await say(communicator, 'Hello there')
         assert await ConversationTurn.objects.acount() >= 1, 'no turn was logged'
     finally:
-        await communicator.disconnect()
+        try:
+            await communicator.disconnect()
+        except asyncio.CancelledError:
+            pass
 
 
 async def test_malformed_frame_does_not_drop_the_connection(user, ollama, quiet_tts):
@@ -242,7 +278,10 @@ async def test_malformed_frame_does_not_drop_the_connection(user, ollama, quiet_
         messages, _ = await say(communicator, 'Hello there')
         assert replies(messages), 'connection stopped working after a bad frame'
     finally:
-        await communicator.disconnect()
+        try:
+            await communicator.disconnect()
+        except asyncio.CancelledError:
+            pass
 
 
 async def test_interrupt_drops_the_superseded_turn(user, ollama, quiet_tts):
@@ -255,7 +294,10 @@ async def test_interrupt_drops_the_superseded_turn(user, ollama, quiet_tts):
         messages, _ = await say(communicator, 'Good morning')
         assert replies(messages), 'socket unusable after an interrupt'
     finally:
-        await communicator.disconnect()
+        try:
+            await communicator.disconnect()
+        except asyncio.CancelledError:
+            pass
 
 
 async def test_disconnect_cleans_up(user, ollama, quiet_tts):
@@ -280,4 +322,7 @@ async def test_reminder_is_stored_timezone_aware(user, ollama, quiet_tts):
         reminder = await Reminder.objects.aget()
         assert reminder.due_at.tzinfo is not None, 'due_at must be timezone-aware'
     finally:
-        await communicator.disconnect()
+        try:
+            await communicator.disconnect()
+        except asyncio.CancelledError:
+            pass
