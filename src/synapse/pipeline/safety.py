@@ -20,18 +20,36 @@ def _sentences(text):
 
 
 def keep_single_question(text):
-    """Keep at most one question, so the person has one thing to answer."""
+    """End the reply at its first question.
+
+    One thing to answer, and it is the last thing heard. Anything after a
+    question is either a second question or a statement competing with it for
+    attention, and both are harder to hold on to.
+    """
     sentences = _sentences(text)
-    questions = [i for i, s in enumerate(sentences) if s.rstrip().endswith('?')]
-    if len(questions) <= 1:
+    for index, sentence in enumerate(sentences):
+        if sentence.rstrip().endswith('?'):
+            return ' '.join(sentences[:index + 1])
+    return text
+
+
+def _truncate_at_a_word(text, limit):
+    """Hard cut, backing up to a word boundary where there is one."""
+    if len(text) <= limit:
         return text
-    # Keep everything up to and including the first question.
-    return ' '.join(sentences[:questions[0] + 1])
+    cut = text[:limit]
+    spaced = cut.rsplit(' ', 1)[0]
+    return (spaced if len(spaced) >= limit // 2 else cut).rstrip()
 
 
 def shorten(text, limit=MAX_SPOKEN_CHARS):
-    """Trim a long reply to whole sentences within the limit."""
-    text = text.strip()
+    """Trim a long reply to whole sentences within the limit.
+
+    The limit is a guarantee, not a preference. A reply with no sentence
+    punctuation - which a model produces often enough - used to come back
+    whole, so a thousand words could be read out in one breath.
+    """
+    text = (text or '').strip()
     if len(text) <= limit:
         return text
 
@@ -41,7 +59,8 @@ def shorten(text, limit=MAX_SPOKEN_CHARS):
             break
         kept.append(sentence)
         total += len(sentence) + 1
-    return ' '.join(kept) if kept else text[:limit].rstrip()
+
+    return _truncate_at_a_word(' '.join(kept) if kept else text, limit)
 
 
 def soften_not_found(text):
