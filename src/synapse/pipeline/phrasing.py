@@ -15,6 +15,7 @@ Lookarounds rather than \\b throughout, because these patterns survive being
 edited by tools that mangle backslash escapes.
 """
 
+import os
 import re
 
 #: Applied before the single-word swaps, so "I am" becomes "you are" rather
@@ -229,3 +230,96 @@ def ask_where(entity=None, verb='put'):
     if entity and entity not in ('user', 'memory', 'fact'):
         return f'Where did you {verb} your {entity}?'
     return f'Where did you {verb} it?'
+
+
+#: An emergency number differs by country and a wrong one is worse than none,
+#: so it is only spoken when the deployment sets it.
+EMERGENCY_NUMBER = os.getenv('EMERGENCY_NUMBER', '').strip()
+
+#: What a person says when something is wrong, and what to say back. Checked
+#: in order, so the serious readings come first: "I have fallen and I feel
+#: muddled" is about the fall.
+#:
+#: These are built rather than generated, like the confirmations above and for
+#: a stronger reason. They are the highest-stakes thing the assistant says,
+#: and a 1.5b model asked to answer distress produced "Hello. It is good to
+#: hear from you." to "I am feeling a bit muddled this afternoon". A person
+#: who cannot easily tell a good answer from a bad one is owed the same warm
+#: sentence every time.
+_WELLBEING = (
+    # Something that needs a person, now. Deliberately narrow: only what is
+    # unambiguous, because a false alarm teaches people to ignore it.
+    ('urgent', re.compile(
+        r"(?<![a-z])i(?:'ve| have)\s+fallen(?![a-z])"
+        r"|(?<![a-z])i\s+fell\s+(?:down|over)(?![a-z])"
+        r"|(?<![a-z])can(?:'t|not)\s+get\s+up(?![a-z])"
+        r"|(?<![a-z])chest\s+pain(?![a-z])"
+        r"|pain\s+in\s+my\s+chest"
+        r"|(?<![a-z])can(?:'t|not)\s+breathe(?![a-z])"
+        r"|(?<![a-z])i(?:'m| am)\s+bleeding(?![a-z])"
+        r"|(?<![a-z])heart\s+attack(?![a-z])"
+        r"|(?<![a-z])(?:having|had)\s+a\s+stroke(?![a-z])"
+    ), 'That needs someone with you now. Please call for help straight away.'),
+
+    # Unwell, but not an emergency. The assistant does not guess at causes.
+    ('unwell', re.compile(
+        r"(?<![a-z])(?:unwell|poorly|nauseous|dizzy|faint|light-?headed)(?![a-z])"
+        r"|(?:feel|feeling)\s+(?:very\s+|a bit\s+|rather\s+|really\s+)?sick(?![a-z])"
+        r"|not\s+(?:feeling|been)\s+(?:very\s+|too\s+|so\s+)?well(?![a-z])"
+        r"|(?<![a-z])in\s+pain(?![a-z])"
+        r"|(?<![a-z])(?:it\s+)?hurts(?![a-z])"
+        r"|(?<![a-z])(?:hurting|aching|sore|headache|stomach\s?ache)(?![a-z])"
+    ), "I'm sorry you're not feeling well. Please tell someone who looks after you."),
+
+    # Disorientation. Validated, never corrected - correcting someone who is
+    # disoriented is the thing person-centred dementia care says not to do.
+    ('confusion', re.compile(
+        r"(?<![a-z])(?:muddled|confused|befuddled|foggy|disoriented)(?![a-z])"
+        r"|(?<![a-z])mixed\s+up(?![a-z])"
+        r"|(?<![a-z])can(?:'t|not)\s+think\s+straight(?![a-z])"
+        r"|(?<![a-z])(?:everything|it\s+all)\s+(?:is|'s|seems)\s+a\s+(?:blur|jumble|muddle)"
+    ), "That sounds unsettling. Take your time - there's no hurry, and I'm here."),
+
+    # Worry about their own memory, which is the thing the assistant is for.
+    ('memory', re.compile(
+        r"(?<![a-z])keep\s+forgetting(?![a-z])"
+        r"|(?<![a-z])my\s+memory(?![a-z])"
+        r"|(?<![a-z])forgetting\s+(?:things|everything)(?![a-z])"
+        r"|(?<![a-z])i\s+can(?:'t|not)\s+remember\s+(?:anything|things|much)(?![a-z])"
+    ), "That happens, and it's all right. I'm keeping track of things for you - "
+       'just ask me.'),
+
+    ('anxiety', re.compile(
+        r"(?<![a-z])(?:worried|anxious|frightened|scared|afraid|nervous"
+        r"|panicking|uneasy)(?![a-z])"
+    ), "That sounds worrying. You're safe, and I'm here with you."),
+
+    ('low mood', re.compile(
+        r"(?<![a-z])(?:sad|lonely|unhappy|miserable|down-?hearted|wretched)(?![a-z])"
+        r"|(?<![a-z])fed\s+up(?![a-z])"
+        r"|(?:feel|feeling)\s+(?:very\s+|a bit\s+|rather\s+|really\s+)?down(?![a-z])"
+    ), "I'm sorry you're feeling that way. I'm here with you."),
+
+    ('tiredness', re.compile(
+        r"(?<![a-z])(?:tired|exhausted|sleepy|weary)(?![a-z])"
+        r"|(?<![a-z])worn\s+out(?![a-z])"
+    ), 'Then a rest sounds like a good idea.'),
+)
+
+
+def wellbeing_reply(text):
+    """A reply to someone saying how they are, or None if they did not.
+
+    Returns the kind alongside the words, because a turn worth answering
+    warmly is also worth recording for whoever is caring for the person.
+    """
+    lowered = _clean(text).lower()
+    if not lowered:
+        return None
+
+    for kind, pattern, reply in _WELLBEING:
+        if pattern.search(lowered):
+            if kind == 'urgent' and EMERGENCY_NUMBER:
+                reply = f'{reply} The emergency number is {EMERGENCY_NUMBER}.'
+            return kind, reply
+    return None

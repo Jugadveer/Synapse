@@ -14,7 +14,7 @@ from django.utils import timezone
 
 from pipeline.phrasing import (
     acknowledge_memory, answer_from_memory, ask_where, complete_with_location,
-    confirm_reminder, describe_reminder, small_talk_reply,
+    confirm_reminder, describe_reminder, small_talk_reply, wellbeing_reply,
 )
 from pipeline.prompts import classify_prompt, memory_analyst_prompt
 from pipeline.reminder_parser import looks_like_reminder, parse_reminder
@@ -85,6 +85,11 @@ RETRIEVAL_QUESTION = re.compile(
     r"|what\s+did\s+i\s+do\s+with"
     r"|have\s+you\s+seen"
     r"|do\s+you\s+know\s+where)"
+    # Not phrased as a question, but asking one all the same. Checked here so
+    # that "I can't remember where I put my keys" is answered with the place
+    # rather than met with sympathy about forgetting.
+    r"|i\s+(?:can'?t|cannot|don'?t)\s+remember\s+where"
+    r"|i\s+(?:forget|keep\s+forgetting)\s+where"
 )
 
 
@@ -137,6 +142,7 @@ def is_self_contained(text):
         or looks_like_memory_question(text)
         or looks_like_incomplete_memory(text)
         or is_small_talk(text)
+        or wellbeing_reply(text)
     )
 
 
@@ -246,6 +252,11 @@ class QwenRouter(PipelineWorker):
         if not user_text:
             return
 
+        wellbeing = wellbeing_reply(user_text)
+        if wellbeing and wellbeing[0] == 'urgent':
+            await self._respond_wellbeing(user_text, wellbeing, generation)
+            return
+
         pending = self.pipeline.pending_memory_clarification
         if pending and pending.get('kind') == 'reminder':
             if await self._resume_reminder(user_text, pending, generation):
@@ -292,6 +303,10 @@ class QwenRouter(PipelineWorker):
 
         if looks_like_incomplete_memory(user_text):
             await self._ask_where(user_text, generation)
+            return
+
+        if wellbeing:
+            await self._respond_wellbeing(user_text, wellbeing, generation)
             return
 
         if is_small_talk(user_text):
@@ -479,6 +494,21 @@ class QwenRouter(PipelineWorker):
             return
 
         await self._dispatch_general(user_text, decision, generation)
+
+    async def _respond_wellbeing(self, user_text, wellbeing, generation):
+        """Answer a statement about how the person is.
+
+        Labelled with its kind rather than folded into casual, because a
+        record that the person said they felt muddled, or were in pain, is
+        worth more to whoever cares for them than the turn itself.
+        """
+        kind, reply = wellbeing
+        self.pipeline.pending_memory_clarification = None
+        decision = self._normalize({
+            'intent': 'wellbeing', 'wellbeing': kind, 'is_fast': True,
+            'needs_reasoning': False, 'confidence': 0.95, 'fast_response': reply,
+        })
+        await self._respond(user_text, decision, reply, generation)
 
     async def _ask_where(self, user_text, generation):
         """Ask the one missing question, and remember what it was about."""
