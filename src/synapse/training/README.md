@@ -106,12 +106,28 @@ python serve_router.py --port 11500
 `serve_router.py` implements the one endpoint the router calls
 (`/api/generate`), so nothing in the application changes.
 
-> **Known problem.** It answers 8/8 correctly but takes roughly 26 seconds a
-> call, against Ollama's 0.5–1.8s with the quantised base model. Early stopping
-> on the closing brace did not help, and the model is confirmed on the GPU with
-> `use_cache` enabled. Unresolved, so the default stays on Ollama and the base
-> model. Converting the merged checkpoint to a quantised GGUF with the
-> llama.cpp toolchain is the likely fix.
+### Latency
+
+2.0s for a classification and 4.0s for the longer memory-analyst prompt, at
+~21 tokens a second in fp16. The first call after startup is slower while
+kernels warm up.
+
+Three things were wrong when this first measured 26 seconds a call:
+
+- **VRAM.** Ollama still held its own model, leaving under a gigabyte spare on
+  a 6 GB card. The allocator thrashes there and throughput drops roughly
+  tenfold, with wild variance — 14 to 56 seconds for the same work. `ollama
+  stop` first; the server now reports free VRAM at startup and warns below
+  1.2 GB.
+- **A stopping criterion that was not needed.** It decoded the whole generated
+  tail on every token to find the closing brace. The model emits
+  end-of-sequence after 50 to 110 tokens on its own, so this only added cost.
+- **`device_map`.** Passing it measured 21.7 tokens a second against 17.0 for
+  loading and then calling `.to('cuda')`, for the same memory.
+
+4-bit NF4 was tried and rejected: 14.9 tokens a second against fp16's 21.7.
+It saves 2 GB but dequantisation costs more than the memory is worth at this
+size and batch of one.
 
 ## Improving it
 

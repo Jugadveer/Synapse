@@ -153,12 +153,22 @@ cannot drift apart — a test fails if they do.
 The `confidence` row is the important one: the base model omits the field on
 three turns in eight, and the clarification gate cannot work without it.
 
-> **Not yet wired in.** Ollama 0.34 dropped LoRA support, so
-> [`merge_router.py`](src/synapse/training/merge_router.py) merges the weights
-> and [`serve_router.py`](src/synapse/training/serve_router.py) serves them over
-> the same `/api/generate` contract. It answers 8/8 correctly but takes ~26s a
-> call against Ollama's 0.5–1.8s, so the default stays on the base model.
-> Unresolved.
+Ollama 0.34 dropped LoRA support, so
+[`merge_router.py`](src/synapse/training/merge_router.py) folds the adapter
+into the weights and [`serve_router.py`](src/synapse/training/serve_router.py)
+serves them over the same `/api/generate` contract — nothing in the
+application changes:
+
+```bash
+ollama stop qwen2.5:1.5b-instruct          # both want the same card
+python src/synapse/training/merge_router.py
+python src/synapse/training/serve_router.py --port 11500
+# then in .env:  OLLAMA_URL=http://127.0.0.1:11500
+```
+
+**2.0s a classification, 4.0s for the longer memory prompt**, and a full
+seven-turn conversation averages 2.6s a turn. `.env` still points at Ollama by
+default, because that works without a second process running.
 
 ### The audio indicator
 
@@ -289,7 +299,7 @@ background scheduler that must outlive any request, and keeps state on disk.
 - The audio indicator declines to answer two thirds of the time. That is the
   honest behaviour, not a bug.
 - The MRI model is unvalidated.
-- The fine-tuned router is measured but not deployed (latency, above).
+- The fine-tuned router needs its own process; the default stays on Ollama.
 - SQLite by default. Move off it before more than a handful of people use it.
 - The FAISS store is a local directory; put it on a persistent volume.
 
