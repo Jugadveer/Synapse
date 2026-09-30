@@ -12,6 +12,12 @@ application needs no change beyond pointing OLLAMA_URL at this process.
 
 Stay on Ollama instead by leaving OLLAMA_URL alone; the base model still
 works, just less accurately (4/8 against 8/8 on the spoken cases).
+
+Unload Ollama's own model first. Both want the same card, and with under a
+gigabyte spare the allocator thrashes: the same turn that takes two seconds
+with room takes twenty to fifty without it.
+
+    ollama stop qwen2.5:1.5b-instruct
 """
 
 import argparse
@@ -35,14 +41,27 @@ logger = logging.getLogger('router')
 
 HERE = Path(__file__).resolve().parent
 MERGED = HERE / 'artifacts' / 'router-merged'
+#: The model emits end-of-sequence after 50 to 110 tokens on its own, so this
+#: is a backstop rather than the usual stopping point.
 MAX_NEW_TOKENS = 256
+
+#: Below this much free VRAM the CUDA allocator starts thrashing and each turn
+#: takes 20 to 50 seconds instead of two to five. Measured with Ollama holding
+#: its own model on the same 6 GB card.
+HEADROOM_BYTES = 1_200_000_000
 
 #: Generation is serialised: one model, and concurrent generate() calls on the
 #: same weights contend for the device rather than going faster.
 _lock = threading.Lock()
 _model = None
 _tokenizer = None
-_system_prompt = 'You are a decision layer for a dementia-safe voice assistant. Output JSON only.'
+#: Two system prompts. Sending the JSON one for a free-text request told the
+#: model to answer in JSON and then the caller parsed it as prose.
+_JSON_SYSTEM = 'You are a decision layer for a dementia-safe voice assistant. Output JSON only.'
+_TEXT_SYSTEM = (
+    'You are a warm, concise assistant for a person living with dementia. '
+    'Answer in one short sentence.'
+)
 
 
 def load(path, device):
@@ -54,44 +73,32 @@ def load(path, device):
     _model = AutoModelForCausalLM.from_pretrained(
         str(path),
         dtype=torch.float16 if device == 'cuda' else torch.float32,
-        device_map=device if device == 'cuda' else None,
+        # Measured faster than loading then .to('cuda'): 21.7 against 17.0
+        # tokens a second, for the same memory.
+        device_map='cuda' if device == 'cuda' else None,
     ).eval()
     if device != 'cuda':
         _model = _model.to('cpu')
-    logger.info(f'ready on {device}')
 
-
-class StopOnClosedJson:
-    """Stop as soon as the JSON object is complete.
-
-    Without this the model runs to the token cap on every call - it has said
-    everything it needs to after about a hundred tokens but does not always
-    emit an end-of-sequence marker, so each turn cost 10 to 27 seconds instead
-    of two or three. Braces are counted rather than matched on the first "}",
-    because information_completeness is nested.
-    """
-
-    def __init__(self, tokenizer, prompt_length):
-        self.tokenizer = tokenizer
-        self.prompt_length = prompt_length
-        self.depth = 0
-        self.opened = False
-
-    def __call__(self, input_ids, scores, **kwargs):
-        tail = self.tokenizer.decode(
-            input_ids[0][self.prompt_length:], skip_special_tokens=True
-        )
-        self.depth = tail.count('{') - tail.count('}')
-        self.opened = self.opened or '{' in tail
-        return self.opened and self.depth <= 0
+    if device == 'cuda':
+        free, total = torch.cuda.mem_get_info()
+        logger.info(f'ready on {device}, {free / 1e9:.1f} GB of {total / 1e9:.1f} GB free')
+        if free < HEADROOM_BYTES:
+            logger.warning(
+                'Less than %.1f GB of VRAM free. Generation slows by roughly ten '
+                'times when the allocator runs out of room - the symptom is 20 to '
+                '50 seconds a turn instead of two to five. Free some up with: '
+                'ollama stop <model>',
+                HEADROOM_BYTES / 1e9,
+            )
+    else:
+        logger.info(f'ready on {device}')
 
 
 @torch.inference_mode()
 def generate(prompt, temperature, want_json):
-    from transformers import StoppingCriteriaList
-
     messages = [
-        {'role': 'system', 'content': _system_prompt},
+        {'role': 'system', 'content': _JSON_SYSTEM if want_json else _TEXT_SYSTEM},
         {'role': 'user', 'content': prompt},
     ]
     text = _tokenizer.apply_chat_template(
@@ -109,11 +116,6 @@ def generate(prompt, temperature, want_json):
         kwargs.update(do_sample=True, temperature=temperature)
     else:
         kwargs.update(do_sample=False)
-
-    if want_json:
-        kwargs['stopping_criteria'] = StoppingCriteriaList(
-            [StopOnClosedJson(_tokenizer, prompt_length)]
-        )
 
     output = _model.generate(**inputs, **kwargs)
     reply = _tokenizer.decode(
