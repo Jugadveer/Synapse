@@ -326,7 +326,7 @@ class QwenRouter(PipelineWorker):
             context = await self.pipeline.memory_worker.retrieve_context(
                 decision.get('memory_query') or user_text
             )
-            text = await self._compose_retrieve_response(user_text, decision, context)
+            text = self._compose_retrieve_response(user_text, decision, context)
             await self._respond(user_text, decision, text, generation)
             return
 
@@ -538,22 +538,18 @@ User message: {user_text}"""
         """
         return acknowledge_memory(memory_value or user_text)
 
-    async def _compose_retrieve_response(self, user_text, decision, memory_context):
+    def _compose_retrieve_response(self, user_text, decision, memory_context):
+        """Phrase a stored memory as an answer.
+
+        Built rather than generated. Asking the model to rewrite the memory
+        cost a second round trip and produced answers that ignored the context
+        it was given: after the router was fine-tuned for JSON, "where did I
+        leave my keys" came back as "Could you tell me where they were last?"
+        while the answer sat in the context all along.
+        """
         memory_context = (memory_context or '').strip()
         if not memory_context:
             return "I don't have that written down yet."
-
-        prompt = f"""Answer the person's question in one short sentence using the context.
-Do not say "I found". Do not start with "Okay".
-
-Question: {user_text}
-Context: {memory_context}"""
-        generated = await self._llm_text(prompt)
-        if generated:
-            return generated.strip()
-
-        # The old fallback swapped only a leading "I" or "My", so a memory
-        # came back as "You left my keys on the table".
         return answer_from_memory(memory_context.splitlines()[0])
 
     async def _llm_json(self, prompt, default=None):
