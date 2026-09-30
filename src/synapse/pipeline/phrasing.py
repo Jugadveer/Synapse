@@ -114,3 +114,118 @@ def answer_from_memory(memory_text):
     if not detail:
         return "I don't have that written down yet."
     return f"{detail[0].upper()}{detail[1:]}."
+
+
+#: Courtesies, in the order they are checked. A farewell is looked for before
+#: a greeting because "good night" is both.
+_COURTESIES = (
+    ('farewell', re.compile(r"(?<![a-z])(?:bye|goodbye|goodnight|good night)(?![a-z])"),
+     'Goodbye. Take care.'),
+    ('thanks', re.compile(r"(?<![a-z])(?:thanks|thank you|cheers)(?![a-z])"),
+     "You're welcome."),
+    ('enquiry', re.compile(r"how\s+(?:are|is)\s+(?:you|it)"),
+     "I'm well, thank you. How are you?"),
+    ('apology', re.compile(r"(?<![a-z])sorry(?![a-z])"),
+     'That is quite all right.'),
+)
+
+#: Greetings mirror the time of day the person used, because answering "good
+#: evening" with "good morning" is the kind of small wrongness that makes an
+#: assistant feel inattentive.
+_TIMES_OF_DAY = ('morning', 'afternoon', 'evening')
+
+
+def small_talk_reply(text):
+    """A reply to a turn that is only courtesy, or None if there is none.
+
+    These were going to the model, which cost a round trip and got them wrong:
+    "thanks very much" came back as "Hello. It is good to hear from you." They
+    are a closed set of short exchanges, so they are answered here.
+    """
+    lowered = _clean(text).lower()
+    if not lowered:
+        return None
+
+    for _, pattern, reply in _COURTESIES:
+        if pattern.search(lowered):
+            return reply
+
+    if re.search(r"(?<![a-z])(?:hello|hi|hey|greetings)(?![a-z])", lowered):
+        return 'Hello. It is good to hear from you.'
+
+    for part in _TIMES_OF_DAY:
+        if re.search(r"(?<![a-z])" + part + r"(?![a-z])", lowered):
+            return f'Good {part}.'
+
+    # A bare acknowledgement. Nothing to answer, but silence reads as a
+    # failure, so say the least that closes the turn.
+    if re.fullmatch(r"(?:ok|okay|okey|yes|yeah|yep|no|nope|sure|fine|right|"
+                    r"all right|alright|well)[\s.!]*", lowered):
+        return 'All right.'
+
+    return None
+
+
+#: A bare answer to "where did you put it?" - a preposition, a place, nothing
+#: else. Anything longer is left to the model, because "I think I moved them
+#: yesterday" is not a slot fill and must not be spliced in as one.
+_BARE_PLACE = re.compile(
+    r"^(?:in|on|at|under|underneath|behind|beside|by|near|inside|next to"
+    r"|over|above|below)\s+[a-z][a-z\s']{1,40}$"
+)
+
+#: What a person says when they cannot remember the place, which is what sent
+#: the turn down the clarification path to begin with. Removed before the
+#: answer is spliced in, so the two do not both end up in the sentence.
+_VAGUE_PLACE = re.compile(
+    r"\s*(?:somewhere|someplace|some place|anywhere)"
+    r"(?:\s+(?:safe|else|about|around|there|here))?\s*[.!]?\s*$"
+)
+
+
+def complete_with_location(original, answer):
+    """Splice a one-phrase answer into the statement that prompted the question.
+
+    "I put my glasses somewhere" answered with "on the bookshelf" becomes
+    "I put my glasses on the bookshelf".
+
+    This was a second model call - the whole 14-field memory-analysis prompt,
+    5.7s - to join two strings. Returns None when the answer is not a bare
+    place, which leaves the turn to the model as before.
+    """
+    original = _clean(original)
+    answer = _clean(answer)
+    if not original or not answer:
+        return None
+    if not _BARE_PLACE.match(answer.lower().rstrip('.!')):
+        return None
+    stem = _VAGUE_PLACE.sub('', original).rstrip(' ,.!')
+    if not stem:
+        return None
+    # The answer was its own sentence, so it arrives capitalised; mid-sentence
+    # it is not. Only the leading preposition is touched, and that is always a
+    # common word.
+    answer = answer[0].lower() + answer[1:]
+    return f'{stem} {answer.rstrip(".!")}'
+
+
+#: "Where did you ... ?" needs the base form, so the verb the person used has
+#: to be turned back: "I left it" asks "where did you leave it", not "where
+#: did you left it".
+_BASE_FORM = {
+    'put': 'put', 'left': 'leave', 'kept': 'keep', 'placed': 'place',
+    'stored': 'store', 'hid': 'hide', 'moved': 'move', 'parked': 'park',
+    'leave': 'leave', 'keep': 'keep', 'place': 'place', 'store': 'store',
+    'hide': 'hide', 'move': 'move', 'park': 'park',
+}
+
+#: Names the object rather than saying "them". Pronouns are exactly what is
+#: hard for the person being asked, and the dementia-dialogue work on
+#: incremental clarification is explicit that the question should repeat the
+#: referent instead of pointing back at it.
+def ask_where(entity=None, verb='put'):
+    """The one question to ask about a memory with no place in it."""
+    verb = _BASE_FORM.get((verb or '').lower().strip(), 'put')
+    if entity and entity not in ('user', 'memory', 'fact'):
+        return f'Where did you {verb} your {entity}?'
+    return f'Where did you {verb} it?'

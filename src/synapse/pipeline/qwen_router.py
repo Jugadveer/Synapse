@@ -13,7 +13,8 @@ import httpx
 from django.utils import timezone
 
 from pipeline.phrasing import (
-    acknowledge_memory, answer_from_memory, confirm_reminder, describe_reminder,
+    acknowledge_memory, answer_from_memory, ask_where, complete_with_location,
+    confirm_reminder, describe_reminder, small_talk_reply,
 )
 from pipeline.prompts import classify_prompt, memory_analyst_prompt
 from pipeline.reminder_parser import looks_like_reminder, parse_reminder
@@ -63,6 +64,103 @@ MEMORY_STATEMENT = re.compile(
 )
 
 
+#: The things people misplace, and what they call them. Shared by the entity
+#: recogniser and the retrieval gate below, so a question and the statement
+#: that answered it agree on what is being talked about.
+ENTITY_TERMS = {
+    'keys': ['key', 'keys'],
+    'wallet': ['wallet'],
+    'glasses': ['glasses', 'spectacles'],
+    'phone': ['phone', 'mobile'],
+    'remote': ['remote'],
+    'documents': ['document', 'documents', 'papers'],
+    'medicine': ['medicine', 'medication', 'pill', 'pills', 'pillbox', 'tablets'],
+    'book': ['book', 'books'],
+    'hearing aid': ['hearing aid'],
+}
+
+#: Asking where something is, in the shapes people actually use.
+RETRIEVAL_QUESTION = re.compile(
+    r"^\s*(?:where(?:'s|\s)"
+    r"|what\s+did\s+i\s+do\s+with"
+    r"|have\s+you\s+seen"
+    r"|do\s+you\s+know\s+where)"
+)
+
+
+def mentions_entity(text):
+    """The entity named in a turn, or None."""
+    lowered = (text or '').lower()
+    for entity, terms in ENTITY_TERMS.items():
+        if any(re.search(f"(?<![a-z]){re.escape(term)}(?![a-z])", lowered)
+               for term in terms):
+            return entity
+    return None
+
+
+def looks_like_memory_question(text):
+    """Recognise "where did I leave my keys" without asking the model.
+
+    The statement side is already deterministic; the question that answers it
+    should be too, and it cost a 5.7s memory-analysis call to reach the same
+    conclusion. A named entity is required, so "where is the nearest chemist"
+    still goes to the model rather than being answered from an empty store.
+    """
+    lowered = (text or '').strip().lower()
+    if not lowered or not RETRIEVAL_QUESTION.match(lowered):
+        return False
+    return mentions_entity(lowered) is not None
+
+
+#: "I put/left my glasses ..." - the opening of a memory about where
+#: something is.
+PLACEMENT_VERB = re.compile(
+    r"(?:^|\s)i\s+(?:left|put|kept|placed|stored|hid|moved|parked)(?:\s|$)"
+)
+
+#: A place, given as a prepositional phrase.
+HAS_PLACE = re.compile(
+    r"(?:^|\s)(?:in|on|at|under|underneath|behind|beside|by|near|inside)\s+\w"
+)
+
+
+def is_self_contained(text):
+    """Whether a turn is a complete thought rather than an answer to a question.
+
+    A pending clarification used to swallow whatever came next. Asked "which
+    book do you mean?", the assistant met "my daughter is called Priya" with
+    "who is it you're talking about?", and was still on the book two turns
+    later. A turn that stands on its own ends the clarification instead.
+    """
+    return bool(
+        looks_like_memory_statement(text)
+        or looks_like_memory_question(text)
+        or looks_like_incomplete_memory(text)
+        or is_small_talk(text)
+    )
+
+
+def looks_like_incomplete_memory(text):
+    """A memory with the place missing, which is the one thing to ask about.
+
+    "I put my glasses somewhere" names the object and not the place. Which
+    slot is empty is plain from the sentence, so working it out does not need
+    the 5.7s memory-analysis call that used to do it.
+    """
+    lowered = (text or '').strip().lower()
+    if not lowered or QUESTION.search(lowered):
+        return False
+    if not PLACEMENT_VERB.search(lowered) or not is_storable(lowered):
+        return False
+    return not HAS_PLACE.search(lowered)
+
+
+def placement_verb(text):
+    """The verb the person used, so the question echoes it back."""
+    match = PLACEMENT_VERB.search((text or '').lower())
+    return match.group(0).split()[-1] if match else 'put'
+
+
 def looks_like_memory_statement(text):
     """Recognise a memory worth storing without asking the model.
 
@@ -76,6 +174,30 @@ def looks_like_memory_statement(text):
     if not lowered or QUESTION.search(lowered):
         return False
     return bool(MEMORY_STATEMENT.search(lowered)) and is_storable(lowered)
+
+
+def is_small_talk(text):
+    """Whether a turn is courtesy and nothing else.
+
+    Checked without a token-count floor, unlike is_storable: "hi" is one word
+    and still small talk.
+    """
+    tokens = re.findall(r"[a-z']+", (text or '').lower())
+    return bool(tokens) and all(token in SMALL_TALK for token in tokens)
+
+
+def needs_memory_analysis(text):
+    """Whether a turn is worth a memory-analysis call.
+
+    The analyst prompt is the expensive one - 97 output tokens against the
+    classifier's 46, 5.7s against 1.8s - and it ran on every turn that got
+    past the deterministic guards, "hello there" included. A turn made only of
+    courtesies has nothing to store and nothing to look up.
+
+    A retrieval question passes, because it names the thing it is asking
+    about: "where are my keys" carries "keys", which is not a courtesy.
+    """
+    return is_storable(text)
 
 
 def is_storable(text):
@@ -138,8 +260,20 @@ class QwenRouter(PipelineWorker):
             return
 
         if pending:
-            if await self._resume_memory(user_text, pending, generation):
+            if is_self_contained(user_text):
+                # A new thought, not an answer. Let the question go.
+                self.pipeline.pending_memory_clarification = None
+            elif await self._resume_memory(user_text, pending, generation):
                 return
+
+        if looks_like_memory_question(user_text):
+            decision = self._normalize({
+                'intent': 'memory_retrieve', 'is_fast': True, 'needs_memory': True,
+                'needs_memory_retrieval': True, 'confidence': 0.95,
+                'memory_query': user_text,
+            })
+            await self._dispatch_general(user_text, decision, generation)
+            return
 
         if looks_like_memory_statement(user_text):
             self.pipeline.pending_memory_clarification = None
@@ -156,12 +290,26 @@ class QwenRouter(PipelineWorker):
             )
             return
 
-        memory_decision = await self._analyze_memory_turn(user_text)
-        if memory_decision and memory_decision.get('intent') in (
-            'memory_store', 'memory_retrieve', 'memory_clarify'
-        ):
-            await self._handle_memory(user_text, memory_decision, generation)
+        if looks_like_incomplete_memory(user_text):
+            await self._ask_where(user_text, generation)
             return
+
+        if is_small_talk(user_text):
+            reply = small_talk_reply(user_text)
+            if reply:
+                await self._respond(user_text, self._normalize({
+                    'intent': 'casual', 'is_fast': True, 'confidence': 0.95,
+                    'fast_response': reply,
+                }), reply, generation)
+                return
+
+        if needs_memory_analysis(user_text):
+            memory_decision = await self._analyze_memory_turn(user_text)
+            if memory_decision and memory_decision.get('intent') in (
+                'memory_store', 'memory_retrieve', 'memory_clarify'
+            ):
+                await self._handle_memory(user_text, memory_decision, generation)
+                return
 
         decision = self._normalize(await self._classify(user_text))
         await self._dispatch_general(user_text, decision, generation)
@@ -332,18 +480,63 @@ class QwenRouter(PipelineWorker):
 
         await self._dispatch_general(user_text, decision, generation)
 
+    async def _ask_where(self, user_text, generation):
+        """Ask the one missing question, and remember what it was about."""
+        decision = self._normalize({
+            'intent': 'memory_store', 'is_fast': True, 'needs_memory': True,
+            'needs_clarification': True, 'needs_memory_storage': False,
+            'confidence': 0.9,
+        })
+        entity = mentions_entity(user_text) or self._entity_for(user_text, decision)
+        self.pipeline.pending_memory_clarification = {
+            'kind': 'memory',
+            'original_text': user_text,
+            'entity': entity,
+            'entity_type': 'location',
+            'memory_content': user_text,
+        }
+        await self._respond(
+            user_text, decision,
+            ask_where(entity, placement_verb(user_text)), generation,
+        )
+
     async def _resume_memory(self, user_text, pending, generation):
+        # The common answer to "where did you put it?" is a place and nothing
+        # else, and joining it to the original sentence does not need a model.
+        spliced = complete_with_location(pending.get('original_text'), user_text)
+        if spliced:
+            self.pipeline.pending_memory_clarification = None
+            decision = self._normalize({
+                'intent': 'memory_store', 'is_fast': True, 'needs_memory': True,
+                'needs_memory_storage': True, 'confidence': 0.95,
+            })
+            await self._store_and_confirm(
+                user_text, decision,
+                entity=pending.get('entity') or self._entity_for(spliced, decision),
+                entity_type=pending.get('entity_type') or 'location',
+                value=spliced,
+                generation=generation,
+            )
+            return True
+
         raw = await self._analyze_memory_turn(user_text, pending)
         if not raw or raw.get('intent') not in ('memory_store', 'memory_clarify'):
             return False
 
         decision = self._normalize(raw)
         if decision.get('needs_clarification'):
-            question = (decision.get('clarification_question')
-                        or decision.get('fast_response')
-                        or 'Could you tell me a little more?')
-            await self._respond(user_text, decision, question, generation)
-            return True
+            if pending.get('asked'):
+                # Asked once already. Store what there is rather than ask
+                # again; a second question on the same turn reads as the
+                # assistant not listening.
+                self.pipeline.pending_memory_clarification = None
+            else:
+                question = (decision.get('clarification_question')
+                            or decision.get('fast_response')
+                            or 'Could you tell me a little more?')
+                self.pipeline.pending_memory_clarification = {**pending, 'asked': True}
+                await self._respond(user_text, decision, question, generation)
+                return True
 
         self.pipeline.pending_memory_clarification = None
         await self._store_and_confirm(
@@ -411,7 +604,7 @@ class QwenRouter(PipelineWorker):
         intent = decision.get('intent')
         if intent == 'memory_retrieve':
             if context:
-                return context.splitlines()[0]
+                return answer_from_memory(context.splitlines()[0])
             return "I don't have that written down yet."
         if intent == 'unclear':
             return 'Could you tell me a bit more?'
@@ -479,18 +672,7 @@ class QwenRouter(PipelineWorker):
 
     def _entity_for(self, user_text, decision):
         text = (user_text or '').lower()
-        entity_map = {
-            'keys': ['key', 'keys'],
-            'wallet': ['wallet'],
-            'glasses': ['glasses', 'spectacles'],
-            'phone': ['phone', 'mobile'],
-            'remote': ['remote'],
-            'documents': ['document', 'documents', 'papers'],
-            'medicine': ['medicine', 'medication', 'pill', 'pills', 'pillbox', 'tablets'],
-            'book': ['book', 'books'],
-            'hearing aid': ['hearing aid'],
-        }
-        for entity, terms in entity_map.items():
+        for entity, terms in ENTITY_TERMS.items():
             if any(re.search(rf'\b{re.escape(t)}\b', text) for t in terms):
                 return entity
         return 'memory' if decision.get('intent') == 'memory_store' else 'user'
