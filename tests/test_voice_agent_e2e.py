@@ -364,3 +364,60 @@ async def test_reminder_is_stored_timezone_aware(user, ollama, quiet_tts):
             await communicator.disconnect()
         except asyncio.CancelledError:
             pass
+
+
+# ------------------------------------------------- saying how they are
+
+async def test_feeling_muddled_is_not_answered_with_a_greeting(user, ollama, quiet_tts):
+    """The whole reason this path exists.
+
+    The 1.5b router classified "I am feeling a bit muddled this afternoon" as
+    casual and the assistant said "Hello. It is good to hear from you."
+    """
+    communicator = await open_socket(user)
+    try:
+        messages, _ = await say(
+            communicator, 'I am feeling a bit muddled this afternoon'
+        )
+        text = ' '.join(replies(messages)).lower()
+
+        assert 'hello' not in text, f'answered with a greeting: {text!r}'
+        assert 'take your time' in text
+        assert ollama.prompts == [], 'distress should not wait on a model'
+    finally:
+        try:
+            await communicator.disconnect()
+        except asyncio.CancelledError:
+            pass
+
+
+async def test_a_fall_is_answered_before_anything_else(user, ollama, quiet_tts):
+    """Even mid-clarification, and even though "I fell" looks like a memory."""
+    communicator = await open_socket(user)
+    try:
+        await say(communicator, 'I put my glasses somewhere')
+        messages, _ = await say(communicator, "I've fallen")
+        text = ' '.join(replies(messages)).lower()
+
+        assert 'call for help' in text, f'a fall was not escalated: {text!r}'
+    finally:
+        try:
+            await communicator.disconnect()
+        except asyncio.CancelledError:
+            pass
+
+
+async def test_forgetting_where_something_is_gets_the_place(user, ollama, quiet_tts):
+    """Not sympathy about forgetting - the person asked where the keys are."""
+    communicator = await open_socket(user)
+    try:
+        await say(communicator, 'I left my keys on the kitchen table')
+        messages, _ = await say(communicator, "I can't remember where I put my keys")
+        text = ' '.join(replies(messages)).lower()
+
+        assert 'kitchen table' in text, f'did not answer the question: {text!r}'
+    finally:
+        try:
+            await communicator.disconnect()
+        except asyncio.CancelledError:
+            pass

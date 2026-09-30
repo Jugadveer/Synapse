@@ -247,3 +247,48 @@ def test_the_floor_can_be_lowered_by_a_caller(tmp_path):
     assert _stocked(tmp_path).search(
         'tell me about my appointment', 3, 'u1', min_score=0.0
     )
+
+
+def test_a_memory_is_not_crowded_out_by_other_people(tmp_path):
+    """The index is shared, and everyone says the same things.
+
+    The candidate window was fixed at fifteen. With enough people storing
+    "I left my keys on the kitchen table", the nearest fifteen records all
+    belonged to somebody else and the person's own answer was never even
+    considered - their memory was simply gone.
+    """
+    from models_wrapper.faiss_memory import FAISSMemory
+
+    store = FAISSMemory(memory_dir=tmp_path / 'mem')
+    for n in range(30):
+        store.store('I left my keys on the kitchen table', 'keys',
+                    'location', 0.9, f'other{n}')
+    store.store('I left my keys in the blue bowl by the door', 'keys',
+                'location', 0.9, 'mine')
+
+    hits = store.search('where are my keys', 3, 'mine')
+
+    assert hits, 'the memory was crowded out'
+    assert hits[0]['text'] == 'I left my keys in the blue bowl by the door'
+    assert all(h.get('user_key', 'mine') == 'mine' for h in hits)
+
+
+def test_one_persons_memories_never_reach_another(tmp_path):
+    from models_wrapper.faiss_memory import FAISSMemory
+
+    store = FAISSMemory(memory_dir=tmp_path / 'mem')
+    store.store('I left my keys on the kitchen table', 'keys', 'location', 0.9, 'a')
+    store.store('I left my keys in the blue bowl', 'keys', 'location', 0.9, 'b')
+
+    assert store.search('where are my keys', 3, 'a')[0]['text'].endswith('kitchen table')
+    assert store.search('where are my keys', 3, 'b')[0]['text'].endswith('blue bowl')
+    assert store.search('where are my keys', 3, 'nobody') == []
+
+
+def test_the_store_can_be_pointed_somewhere_else(tmp_path, monkeypatch):
+    """Deployments put it on a volume; the suite puts it out of the way."""
+    from models_wrapper.faiss_memory import FAISSMemory
+
+    monkeypatch.setenv('SYNAPSE_MEMORY_DIR', str(tmp_path / 'elsewhere'))
+
+    assert FAISSMemory().memory_dir == tmp_path / 'elsewhere'

@@ -525,3 +525,121 @@ def test_an_unknown_verb_falls_back_rather_than_mangling_the_sentence():
 
     assert ask_where('keys', 'yeeted') == 'Where did you put your keys?'
     assert ask_where('keys', None) == 'Where did you put your keys?'
+
+
+# ------------------------------------------------ saying how they are
+
+@pytest.mark.parametrize('text,kind', [
+    ('I am feeling a bit muddled this afternoon', 'confusion'),
+    ('everything is a blur today', 'confusion'),
+    ("I can't think straight", 'confusion'),
+    ("I've fallen", 'urgent'),
+    ('I fell down in the hallway', 'urgent'),
+    ("I can't get up", 'urgent'),
+    ('I have a pain in my chest', 'urgent'),
+    ('I am not feeling very well', 'unwell'),
+    ('my head hurts', 'unwell'),
+    ('I feel dizzy', 'unwell'),
+    ('I keep forgetting things', 'memory'),
+    ('my memory is getting worse', 'memory'),
+    ("I'm worried about tomorrow", 'anxiety'),
+    ('I feel frightened', 'anxiety'),
+    ('I am feeling very lonely', 'low mood'),
+    ('I feel a bit down today', 'low mood'),
+    ('I am so tired', 'tiredness'),
+])
+def test_a_statement_about_how_they_are_is_recognised(text, kind):
+    """The 1.5b model answered "I am feeling a bit muddled this afternoon"
+    with "Hello. It is good to hear from you.\""""
+    from pipeline.phrasing import wellbeing_reply
+
+    result = wellbeing_reply(text)
+    assert result is not None, f'{text!r} was not recognised'
+    assert result[0] == kind
+
+
+@pytest.mark.parametrize('text', [
+    'I left my keys on the kitchen table',
+    'Where did I leave my keys',
+    'Hello there',
+    'remind me to take my tablets in 10 minutes',
+    'I fell asleep in the chair',       # not a fall
+    'my daughter is called Priya',
+    'I put my glasses somewhere',
+    'what is the weather like today',
+    '', None,
+])
+def test_an_ordinary_turn_is_not_treated_as_distress(text):
+    """A false alarm teaches people to ignore the real one."""
+    from pipeline.phrasing import wellbeing_reply
+
+    assert wellbeing_reply(text) is None
+
+
+def test_a_reply_is_offered_for_every_kind():
+    from pipeline.phrasing import _WELLBEING, wellbeing_reply
+
+    for kind, _, _ in _WELLBEING:
+        assert any(
+            (wellbeing_reply(t) or (None,))[0] == kind
+            for t in ("I've fallen", 'my head hurts', 'I feel muddled',
+                      'I keep forgetting things', 'I feel scared',
+                      'I feel lonely', 'I am tired')
+        ), f'no sample reaches {kind}'
+
+
+def test_the_urgent_reply_says_to_get_a_person():
+    """The assistant does not try to manage it, only to hand it over."""
+    from pipeline.phrasing import wellbeing_reply
+
+    _, reply = wellbeing_reply("I've fallen")
+    assert 'call for help' in reply.lower()
+
+
+def test_no_reply_diagnoses_or_reassures_medically():
+    """Nothing here may imply the assistant knows what is wrong."""
+    from pipeline.phrasing import _WELLBEING
+
+    for _, _, reply in _WELLBEING:
+        lowered = reply.lower()
+        for claim in ("you'll be fine", 'nothing to worry', "it's nothing",
+                      'probably just', 'you are not ill'):
+            assert claim not in lowered
+
+
+def test_an_emergency_number_is_only_spoken_when_configured(monkeypatch):
+    """A wrong emergency number is worse than none, and it differs by country."""
+    import importlib
+
+    from pipeline import phrasing
+
+    monkeypatch.setenv('EMERGENCY_NUMBER', '112')
+    reloaded = importlib.reload(phrasing)
+    try:
+        assert '112' in reloaded.wellbeing_reply("I've fallen")[1]
+    finally:
+        monkeypatch.delenv('EMERGENCY_NUMBER')
+        importlib.reload(phrasing)
+
+    assert '112' not in phrasing.wellbeing_reply("I've fallen")[1]
+
+
+@pytest.mark.parametrize('text', [
+    "I can't remember where I put my keys",
+    'I forget where my glasses are',
+    'I keep forgetting where the tablets are',
+])
+def test_forgetting_where_something_is_asks_for_it_rather_than_sympathy(text):
+    """These match the memory-worry wording and are a retrieval all the same."""
+    from pipeline.qwen_router import looks_like_memory_question
+
+    assert looks_like_memory_question(text)
+
+
+def test_distress_ends_a_pending_clarification():
+    """Asked "where did you put them?", "I feel muddled" is not the answer."""
+    from pipeline.qwen_router import is_self_contained
+
+    assert is_self_contained('I am feeling a bit muddled')
+    assert is_self_contained("I've fallen")
+    assert not is_self_contained('on the bookshelf')
