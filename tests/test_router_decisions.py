@@ -263,3 +263,41 @@ async def test_stale_work_is_dropped(gate):
 def test_the_threshold_leaves_room_to_act():
     """A gate at 1.0 would divert everything."""
     assert 0.5 < CONFIDENCE_THRESHOLD < 1.0
+
+
+# ------------------------------------------------- retrieval is built, not asked
+
+def test_a_recalled_memory_is_phrased_without_the_model(router):
+    """Asking the model to rewrite the memory ignored the context it was given.
+
+    After the router was fine-tuned for JSON, "where did I leave my keys" came
+    back as "Could you tell me where they were last?" while the answer sat in
+    the context all along. It is built now, and costs no round trip.
+    """
+    answer = router._compose_retrieve_response(
+        'where did I leave my keys', {}, 'I left my keys on the kitchen table'
+    )
+    assert answer == 'You left your keys on the kitchen table.'
+
+
+def test_retrieval_phrasing_is_not_a_coroutine(router):
+    """It makes no model call, so it must not need awaiting."""
+    import inspect
+
+    assert not inspect.iscoroutinefunction(router._compose_retrieve_response)
+
+
+def test_nothing_recalled_says_so(router):
+    for context in ('', '   ', None):
+        assert router._compose_retrieve_response('where are my keys', {}, context) == (
+            "I don't have that written down yet."
+        )
+
+
+def test_only_the_first_memory_is_read_back(router):
+    """Several matches would be a mouthful; the closest one is the answer."""
+    answer = router._compose_retrieve_response(
+        'where are my keys', {},
+        'I left my keys on the kitchen table\nI put my keys in the drawer',
+    )
+    assert answer == 'You left your keys on the kitchen table.'
