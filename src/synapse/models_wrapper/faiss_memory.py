@@ -44,7 +44,9 @@ class FAISSMemory:
 
     def __init__(self, dimension=384, memory_dir=None):
         self.dimension = dimension
-        self.memory_dir = Path(memory_dir) if memory_dir else DEFAULT_MEMORY_DIR
+        self.memory_dir = Path(
+            memory_dir or os.getenv('SYNAPSE_MEMORY_DIR') or DEFAULT_MEMORY_DIR
+        )
         self.memory_dir.mkdir(parents=True, exist_ok=True)
 
         # Without the embedding model semantic recall is unavailable, but
@@ -226,8 +228,30 @@ class FAISSMemory:
         query_embedding = self._encode([query or ''])
         query_tokens = set(re.findall(r"[a-z0-9]+", (query or '').lower()))
 
-        # Over-fetch so that per-user filtering still has candidates to return.
-        fetch = min(len(self.metadata), max(top_k * 5, top_k))
+        # Over-fetch so that per-user filtering still has candidates, and keep
+        # widening until enough of them are this user's or the index runs out.
+        #
+        # A fixed window silently lost people their memories. The index is
+        # shared, so with several users storing similar things - and "I left
+        # my keys on the kitchen table" is what everyone says - the nearest
+        # fifteen records could all belong to somebody else, and the person's
+        # own answer was never even considered.
+        total = self.index.ntotal
+        fetch = min(total, max(top_k * 5, top_k))
+        while True:
+            results = self._candidates(
+                query_embedding, query_tokens, query, fetch, user_key
+            )
+            if len(results) >= top_k or fetch >= total:
+                break
+            fetch = min(total, fetch * 4)
+
+        results = [r for r in results if r['score'] >= min_score]
+        results.sort(key=lambda item: item.get('score', 0), reverse=True)
+        return results[:top_k]
+
+    def _candidates(self, query_embedding, query_tokens, query, fetch, user_key):
+        """Score the nearest `fetch` records that belong to this user."""
         distances, indices = self.index.search(query_embedding, fetch)
 
         results = []
@@ -256,9 +280,7 @@ class FAISSMemory:
                 'score': base_similarity + lexical_boost + entity_match,
             })
 
-        results = [r for r in results if r['score'] >= min_score]
-        results.sort(key=lambda item: item.get('score', 0), reverse=True)
-        return results[:top_k]
+        return results
 
     def store(self, text, entity, entity_type, confidence=0.9, user_key=None):
         """Store a memory, updating an existing record for the same entity.
