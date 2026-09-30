@@ -24,6 +24,14 @@ logger = logging.getLogger(__name__)
 DEFAULT_MEMORY_DIR = Path(__file__).resolve().parents[1] / "faiss_memory"
 
 
+#: Below this a match is not about the query. Measured on four stored
+#: memories: genuine recalls scored 0.81 to 1.50, queries with no stored
+#: answer topped out at 0.64. Set in the gap, and deliberately nearer the
+#: upper group - telling someone with dementia "I don't have that written
+#: down yet" is better than confidently reciting an unrelated memory.
+MIN_RELEVANCE = 0.72
+
+
 class FAISSMemory:
     """
     FAISS-backed semantic memory with conflict detection and resolution.
@@ -200,8 +208,14 @@ class FAISSMemory:
     # public API
     # ------------------------------------------------------------------
 
-    def search(self, query, top_k=3, user_key=None):
-        """Search memory by semantic similarity, optionally scoped to one user."""
+    def search(self, query, top_k=3, user_key=None, min_score=MIN_RELEVANCE):
+        """Search memory by semantic similarity, optionally scoped to one user.
+
+        Results below min_score are dropped. Without a floor the nearest
+        record is always returned however far away it is: asked to "tell me
+        about my appointment" with nothing about appointments stored, the
+        assistant answered "your daughter is called Priya".
+        """
         # An empty query has nothing to match; without this it returned the
         # nearest record to a zero-ish vector, i.e. an arbitrary memory.
         if not (query or '').strip():
@@ -242,6 +256,7 @@ class FAISSMemory:
                 'score': base_similarity + lexical_boost + entity_match,
             })
 
+        results = [r for r in results if r['score'] >= min_score]
         results.sort(key=lambda item: item.get('score', 0), reverse=True)
         return results[:top_k]
 
