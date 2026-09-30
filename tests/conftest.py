@@ -158,3 +158,23 @@ def memory_store(tmp_path):
 
     # all-MiniLM-L6-v2 and the stand-in both produce 384 dimensions.
     return FAISSMemory(dimension=DIMENSION, memory_dir=tmp_path / 'faiss_memory')
+
+
+@pytest.fixture(autouse=True, scope='session')
+def _memory_store_out_of_the_way(tmp_path_factory):
+    """Keep the suite out of the developer's own memory store.
+
+    The websocket builds its own FAISSMemory with no directory argument, so
+    until this existed every end-to-end run wrote test memories into
+    src/synapse/faiss_memory. Twenty-nine records of "I left my keys on the
+    kitchen table" under made-up user keys later, it was crowding real
+    lookups out of the candidate window.
+    """
+    directory = tmp_path_factory.mktemp('session_memory')
+    previous = os.environ.get('SYNAPSE_MEMORY_DIR')
+    os.environ['SYNAPSE_MEMORY_DIR'] = str(directory)
+    yield directory
+    if previous is None:
+        os.environ.pop('SYNAPSE_MEMORY_DIR', None)
+    else:
+        os.environ['SYNAPSE_MEMORY_DIR'] = previous
