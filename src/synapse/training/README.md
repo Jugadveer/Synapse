@@ -108,9 +108,15 @@ python serve_router.py --port 11500
 
 ### Latency
 
-2.0s for a classification and 4.0s for the longer memory-analyst prompt, at
-~21 tokens a second in fp16. The first call after startup is slower while
-kernels warm up.
+1.8s for a classification (46 output tokens at 26.9 a second) and 5.7s for
+the memory-analyst prompt (97 tokens at 17.6 a second), in fp16. The first
+call after startup is slower while kernels warm up.
+
+Most turns no longer make either call. The router settles greetings,
+reminders, complete memory statements, "where did I leave my keys" and the
+answer to "where did you put it?" without a model, so an eleven-turn
+conversation covering all of those runs in 0.5s. What is left for the model
+is what actually needs judgement.
 
 Three things were wrong when this first measured 26 seconds a call:
 

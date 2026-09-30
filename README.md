@@ -166,9 +166,15 @@ python src/synapse/training/serve_router.py --port 11500
 # then in .env:  OLLAMA_URL=http://127.0.0.1:11500
 ```
 
-**2.0s a classification, 4.0s for the longer memory prompt**, and a full
-seven-turn conversation averages 2.6s a turn. `.env` still points at Ollama by
-default, because that works without a second process running.
+A classification costs 1.8s and the longer memory-analysis prompt 5.7s, so
+the cheapest call is the one not made. Greetings, reminders, memories with a
+place in them, "where did I leave my keys" and the answer to "where did you
+put it?" are all settled in Python. An eleven-turn conversation covering all
+of those — including a clarification and a recall — runs in **0.5s end to
+end**. Turns that genuinely need judgement still cost 3.6 to 5.9s.
+
+`.env` points at Ollama by default, because that works without a second
+process running.
 
 ### The audio indicator
 
