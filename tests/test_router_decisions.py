@@ -301,3 +301,227 @@ def test_only_the_first_memory_is_read_back(router):
         'I left my keys on the kitchen table\nI put my keys in the drawer',
     )
     assert answer == 'You left your keys on the kitchen table.'
+
+
+# ------------------------------------------- spending a model call or not
+
+@pytest.mark.parametrize('text', [
+    'Hello there', 'Good morning', 'hi', 'thanks very much', 'thank you',
+    'how are you going today', 'okay', 'yes', 'no', 'bye', 'sorry',
+])
+def test_courtesies_are_recognised_without_the_model(text):
+    from pipeline.qwen_router import is_small_talk, needs_memory_analysis
+
+    assert is_small_talk(text)
+    assert not needs_memory_analysis(text)
+
+
+@pytest.mark.parametrize('text', [
+    'Where did I leave my keys',
+    'where are my glasses',
+    'I put my glasses somewhere',
+    'I read up to page 78',
+    'my daughter is called Priya',
+    "what's the weather like",
+    'tell me about my appointment',
+    'sorry I cannot find my keys',
+])
+def test_a_turn_with_content_still_reaches_the_model(text):
+    """The gate must not swallow anything that carries a noun.
+
+    "sorry I cannot find my keys" opens with a courtesy and is not one.
+    """
+    from pipeline.qwen_router import is_small_talk, needs_memory_analysis
+
+    assert not is_small_talk(text)
+    assert needs_memory_analysis(text)
+
+
+@pytest.mark.parametrize('text', ['', '   ', None])
+def test_nothing_is_neither_small_talk_nor_analysed(text):
+    from pipeline.qwen_router import is_small_talk, needs_memory_analysis
+
+    assert not is_small_talk(text)
+    assert not needs_memory_analysis(text)
+
+
+# ------------------------------------------------- answering a courtesy
+
+@pytest.mark.parametrize('text,expected', [
+    ('Hello there', 'Hello. It is good to hear from you.'),
+    ('Good morning', 'Good morning.'),
+    ('good evening', 'Good evening.'),
+    ('good night', 'Goodbye. Take care.'),
+    ('bye', 'Goodbye. Take care.'),
+    ('thanks very much', "You're welcome."),
+    ('thank you', "You're welcome."),
+    ('how are you going today', "I'm well, thank you. How are you?"),
+    ('sorry', 'That is quite all right.'),
+    ('okay', 'All right.'),
+])
+def test_each_courtesy_gets_its_own_reply(text, expected):
+    """One canned greeting for all of them answered "thanks" with "Hello"."""
+    from pipeline.phrasing import small_talk_reply
+
+    assert small_talk_reply(text) == expected
+
+
+def test_a_greeting_mirrors_the_time_of_day():
+    """Answering "good evening" with "good morning" reads as inattentive."""
+    from pipeline.phrasing import small_talk_reply
+
+    assert small_talk_reply('good afternoon') == 'Good afternoon.'
+    assert small_talk_reply('good evening') != small_talk_reply('good morning')
+
+
+@pytest.mark.parametrize('text', [
+    'I left my keys on the table', 'where are my keys', '', None,
+])
+def test_anything_with_substance_has_no_canned_reply(text):
+    from pipeline.phrasing import small_talk_reply
+
+    assert small_talk_reply(text) is None
+
+
+# --------------------------------------- finishing a clarified memory
+
+@pytest.mark.parametrize('original,answer,expected', [
+    ('I put my glasses somewhere', 'on the bookshelf',
+     'I put my glasses on the bookshelf'),
+    ('I left it somewhere safe', 'in the top drawer',
+     'I left it in the top drawer'),
+    ('I put my glasses somewhere.', 'On the bookshelf.',
+     'I put my glasses on the bookshelf'),
+    ('I put my wallet down', 'by the front door',
+     'I put my wallet down by the front door'),
+])
+def test_a_place_is_spliced_in_without_the_model(original, answer, expected):
+    """This was the whole 14-field analysis prompt to join two strings."""
+    from pipeline.phrasing import complete_with_location
+
+    assert complete_with_location(original, answer) == expected
+
+
+@pytest.mark.parametrize('answer', [
+    'I think I moved them yesterday',   # not a slot fill
+    'the bookshelf',                    # no preposition
+    'in a very very very very very very very very very very long place',
+    '',
+])
+def test_an_answer_that_is_not_a_place_is_left_to_the_model(answer):
+    from pipeline.phrasing import complete_with_location
+
+    assert complete_with_location('I put my glasses somewhere', answer) is None
+
+
+@pytest.mark.parametrize('original', ['', None, 'somewhere'])
+def test_nothing_to_splice_into_returns_nothing(original):
+    from pipeline.phrasing import complete_with_location
+
+    assert complete_with_location(original, 'on the shelf') is None
+
+
+# ------------------------------------- recognising a memory turn outright
+
+@pytest.mark.parametrize('text', [
+    'Where did I leave my keys', 'where are my glasses', "where's my wallet",
+    'what did I do with my phone', 'have you seen my hearing aid',
+    'do you know where the tablets are',
+])
+def test_a_question_about_a_known_thing_is_a_retrieval(text):
+    from pipeline.qwen_router import looks_like_memory_question
+
+    assert looks_like_memory_question(text)
+
+
+@pytest.mark.parametrize('text', [
+    'where is the nearest chemist',      # nothing stored could answer it
+    'where am I',
+    'what is the weather like',
+    'I left my keys on the table',       # a statement
+    'tell me about my keys',             # not a where-question
+    '', None,
+])
+def test_anything_else_is_left_to_the_model(text):
+    """Answering "where is the nearest chemist" from an empty memory store
+    with "I don't have that written down" would be worse than thinking."""
+    from pipeline.qwen_router import looks_like_memory_question
+
+    assert not looks_like_memory_question(text)
+
+
+@pytest.mark.parametrize('text', [
+    'I put my glasses somewhere', 'I left it somewhere safe',
+    'I put my wallet down', 'I moved my keys',
+])
+def test_a_memory_with_no_place_is_recognised(text):
+    from pipeline.qwen_router import looks_like_incomplete_memory
+
+    assert looks_like_incomplete_memory(text)
+
+
+@pytest.mark.parametrize('text', [
+    'I left my keys on the kitchen table',       # complete
+    'I put the tablets in the bedside drawer',
+    'Where did I put my glasses',                # a question
+    'Hello there',
+    'my daughter is called Priya',               # not a placement
+    '', None,
+])
+def test_a_complete_or_unrelated_turn_is_not_incomplete(text):
+    from pipeline.qwen_router import looks_like_incomplete_memory
+
+    assert not looks_like_incomplete_memory(text)
+
+
+@pytest.mark.parametrize('text', [
+    'I put my glasses somewhere', 'I left my keys on the kitchen table',
+    'Where did I leave my keys', 'where are my glasses', 'Hello there',
+    'I put the tablets in the bedside drawer', 'I moved my keys',
+    'my daughter is called Priya', 'what is the weather like',
+    'remind me to take my tablets in 10 minutes',
+])
+def test_the_deterministic_gates_do_not_overlap(text):
+    """Each turn takes exactly one path, or none and goes to the model."""
+    from pipeline.qwen_router import (
+        looks_like_incomplete_memory, looks_like_memory_question,
+        looks_like_memory_statement, is_small_talk,
+    )
+
+    hits = sum(bool(gate(text)) for gate in (
+        looks_like_incomplete_memory, looks_like_memory_question,
+        looks_like_memory_statement, is_small_talk,
+    ))
+    assert hits <= 1, f'{text!r} was claimed by {hits} gates'
+
+
+@pytest.mark.parametrize('text,expected', [
+    ('I put my glasses somewhere', 'Where did you put your glasses?'),
+    ('I left it somewhere safe', 'Where did you leave it?'),
+    ('I moved my keys', 'Where did you move your keys?'),
+    ('I hid my documents', 'Where did you hide your documents?'),
+    ('I kept my phone somewhere', 'Where did you keep your phone?'),
+])
+def test_the_question_echoes_the_verb_in_the_base_form(text, expected):
+    """"Where did you left it?" - "did" takes the base form."""
+    from pipeline.phrasing import ask_where
+    from pipeline.qwen_router import mentions_entity, placement_verb
+
+    assert ask_where(mentions_entity(text), placement_verb(text)) == expected
+
+
+def test_the_question_names_the_thing_rather_than_saying_them():
+    """Pronouns are what the person is having trouble with."""
+    from pipeline.phrasing import ask_where
+
+    assert ask_where('glasses') == 'Where did you put your glasses?'
+    assert ask_where(None) == 'Where did you put it?'
+    for placeholder in ('user', 'memory', 'fact'):
+        assert ask_where(placeholder) == 'Where did you put it?'
+
+
+def test_an_unknown_verb_falls_back_rather_than_mangling_the_sentence():
+    from pipeline.phrasing import ask_where
+
+    assert ask_where('keys', 'yeeted') == 'Where did you put your keys?'
+    assert ask_where('keys', None) == 'Where did you put your keys?'

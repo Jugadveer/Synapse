@@ -146,10 +146,48 @@ async def test_a_turn_produces_a_spoken_reply(user, ollama, quiet_tts):
 
 
 async def test_router_was_actually_called(user, ollama, quiet_tts):
+    """A turn that needs judgement reaches the model.
+
+    Not a greeting: those are answered without one, on purpose.
+    """
     communicator = await open_socket(user)
     try:
-        await say(communicator, 'Hello there')
+        await say(communicator, 'tell me about my appointment')
         assert ollama.prompts, 'the router never called the model'
+    finally:
+        try:
+            await communicator.disconnect()
+        except asyncio.CancelledError:
+            pass
+
+
+async def test_small_talk_costs_no_model_call(user, ollama, quiet_tts):
+    """Courtesies are a closed set, and every call to a 1.5b model is seconds.
+
+    "Hello there" used to spend the whole memory-analysis prompt and then the
+    classifier - about six seconds - to arrive at a greeting.
+    """
+    communicator = await open_socket(user)
+    try:
+        messages, _ = await say(communicator, 'Hello there')
+        assert ollama.prompts == [], f'the model was called anyway: {ollama.prompts}'
+        assert 'hello' in ' '.join(replies(messages)).lower()
+    finally:
+        try:
+            await communicator.disconnect()
+        except asyncio.CancelledError:
+            pass
+
+
+async def test_thanks_is_not_answered_with_a_greeting(user, ollama, quiet_tts):
+    """The model answered "thanks very much" with "Hello. It is good to hear
+    from you." It is a different exchange and gets a different reply."""
+    communicator = await open_socket(user)
+    try:
+        messages, _ = await say(communicator, 'thanks very much')
+        text = ' '.join(replies(messages)).lower()
+        assert 'welcome' in text, f'unexpected reply to thanks: {text!r}'
+        assert 'hello' not in text
     finally:
         try:
             await communicator.disconnect()
