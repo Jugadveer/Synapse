@@ -174,3 +174,76 @@ def test_many_records_stay_aligned(memory_store):
     assert len(memory_store.metadata) == 40
     assert memory_store.index.ntotal == 40
     assert memory_store.embeddings.shape[0] == 40
+
+
+# ------------------------------------------------- not answering from nothing
+
+def _stocked(tmp_path):
+    from models_wrapper.faiss_memory import FAISSMemory
+
+    store = FAISSMemory(memory_dir=tmp_path / 'mem')
+    for text, entity, kind in [
+        ('I left my keys on the kitchen table', 'keys', 'location'),
+        ('I put the tablets in the bedside drawer', 'medicine', 'location'),
+        ('my daughter is called Priya', 'memory', 'fact'),
+        ('I read up to page 78 of my book', 'book', 'fact'),
+    ]:
+        store.store(text, entity, kind, 0.9, 'u1')
+    return store
+
+
+@pytest.mark.parametrize('query,expected', [
+    ('where are my keys', 'I left my keys on the kitchen table'),
+    ('where did I leave my keys', 'I left my keys on the kitchen table'),
+    ('where are the tablets', 'I put the tablets in the bedside drawer'),
+    ('where is my medicine', 'I put the tablets in the bedside drawer'),
+    ('what is my daughter called', 'my daughter is called Priya'),
+    ('what page am I on', 'I read up to page 78 of my book'),
+])
+def test_a_real_recall_still_comes_back(tmp_path, query, expected):
+    """The floor must not cost genuine recalls."""
+    hits = _stocked(tmp_path).search(query, 3, 'u1')
+
+    assert hits, f'{query!r} returned nothing'
+    assert hits[0]['text'] == expected
+
+
+@pytest.mark.parametrize('query', [
+    'tell me about my appointment',
+    'what is the weather like today',
+    'I am feeling a bit muddled',
+    'who is the prime minister',
+    'when is my next hospital visit',
+    'what did the nurse say',
+    'how do I make a cup of tea',
+])
+def test_a_question_with_no_stored_answer_returns_nothing(tmp_path, query):
+    """The nearest record was returned however far away it was.
+
+    Asked to "tell me about my appointment" with nothing about appointments
+    stored, the assistant answered "your daughter is called Priya". Saying
+    nothing is found is the better answer, and much better for someone who
+    cannot easily tell that it is wrong.
+    """
+    assert _stocked(tmp_path).search(query, 3, 'u1') == []
+
+
+def test_the_floor_sits_between_the_two_groups(tmp_path):
+    """Measured, not guessed: recalls scored 0.81 and up, misses 0.64 and down."""
+    from models_wrapper.faiss_memory import MIN_RELEVANCE
+
+    store = _stocked(tmp_path)
+    recalls = [store.search(q, 3, 'u1', min_score=0.0)[0]['score'] for q in (
+        'where are my keys', 'what is my daughter called', 'what page am I on')]
+    misses = [store.search(q, 3, 'u1', min_score=0.0)[0]['score'] for q in (
+        'tell me about my appointment', 'who is the prime minister',
+        'how do I make a cup of tea')]
+
+    assert max(misses) < MIN_RELEVANCE < min(recalls)
+
+
+def test_the_floor_can_be_lowered_by_a_caller(tmp_path):
+    """Kept adjustable so the threshold is testable rather than baked in."""
+    assert _stocked(tmp_path).search(
+        'tell me about my appointment', 3, 'u1', min_score=0.0
+    )
