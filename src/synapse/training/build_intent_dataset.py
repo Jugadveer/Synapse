@@ -44,7 +44,7 @@ TIMES = ['in ten minutes', 'in two hours', 'at 4pm', 'at 9:30 am', 'tomorrow at 
 
 
 def chat_record(prompt, answer):
-    """One OUMI chat row. The user turn is the exact runtime prompt."""
+    """One chat row. The user turn is the exact runtime prompt."""
     return {
         'messages': [
             {'role': 'system', 'content': SYSTEM_PROMPT},

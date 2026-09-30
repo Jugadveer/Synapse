@@ -1,5 +1,13 @@
-oumi>=0.1.0
-transformers>=4.49.0,<5.0.0
-datasets>=2.20.0
-accelerate>=1.1.0,<2.0.0
+# Fine-tuning the intent router. Install on top of requirements-ml.txt, which
+# already provides torch and transformers.
+#
+#   pip install -r requirements-ml.txt -r src/synapse/training/requirements-training.txt
+#
+# A CUDA build of torch is needed to train on a GPU; the default wheel is
+# CPU-only and a 1.5B LoRA would take many hours on CPU:
+#   pip install torch --index-url https://download.pytorch.org/whl/cu126
+
 peft>=0.13.0
+accelerate>=1.1.0,<2.0.0
+# 4-bit loading, so a 1.5B model trains in ~5 GB of VRAM.
+bitsandbytes>=0.43.0

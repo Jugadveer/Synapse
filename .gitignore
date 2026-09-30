@@ -28,3 +28,6 @@ FinalEclipse/project/staticfiles/
 
 # Fine-tuning artifacts
 src/synapse/training/artifacts/
+
+# Test and tooling caches
+.pytest_cache/
