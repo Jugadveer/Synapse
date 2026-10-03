@@ -50,10 +50,20 @@ docker build -t synapse .
 docker run -p 8000:8000 --env-file .env synapse
 ```
 
-`.dockerignore` keeps `.env`, the database and the memory store out of the
-image. Without it `COPY . .` bakes the live keys into a layer that anyone who
-can pull the image can read back — along with about ten gigabytes of virtualenv
-and model weights.
+`.dockerignore` matters more here than it usually does. Without it `COPY . .`
+takes a 3.5 GB build context, and two things in it must never reach a
+registry:
+
+- **`.env`**, baked into a layer that anyone who can pull the image reads back.
+- **`FinalEclipse/project/synapse/resources/`** — 3.4 GB of recordings in
+  folders named after the people who made them, labelled by dementia status,
+  plus the speaker embeddings extracted from them. Only `prepare_data.py` and
+  `evaluate_audio_model.py` read it and neither runs in the container.
+  Shipping it in an image means redistributing named health data.
+
+With both excluded the context is **26 MB**. The trained models
+(`dementia_model.pkl`, `dementia_model.h5`) are kept, because the running app
+needs them; the corpus they were trained on it does not.
 
 The image ships without the inference wheels, because they are several
 gigabytes and the app degrades cleanly without them — reminders, conversation

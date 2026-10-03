@@ -11,6 +11,20 @@ faiss_memory/
 media/
 staticfiles/
 
+# The training corpus: 3.4 GB of recordings in folders named after the people
+# who made them, labelled by dementia status. Only prepare_data.py and
+# evaluate_audio_model.py read it, and neither runs in the container. Putting
+# it in an image would mean redistributing named health data to anyone who can
+# pull that image.
+FinalEclipse/project/synapse/resources/
+*.wav
+*.mp3
+*.flac
+# Speaker embeddings extracted from those same recordings, and the
+# generated router dataset. Read only by the training scripts.
+*.npz
+src/synapse/training/data/
+
 # Several gigabytes of model weights; the router is served separately.
 src/synapse/training/artifacts/
 *.pt
