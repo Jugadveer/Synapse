@@ -1,0 +1,35 @@
+# Secrets. Without this, COPY . . bakes the live keys into a layer that
+# anyone who can pull the image can read back.
+.env
+.env.*
+!.env.example
+
+# Local state that must not travel with the build.
+db.sqlite3
+*.sqlite3
+faiss_memory/
+media/
+staticfiles/
+
+# Several gigabytes of model weights; the router is served separately.
+src/synapse/training/artifacts/
+*.pt
+*.bin
+*.safetensors
+*.npy
+
+# Build and tooling noise.
+.venv/
+.git/
+.github/
+.pytest_cache/
+.ruff_cache/
+__pycache__/
+*.py[cod]
+node_modules/
+
+# Not needed at runtime.
+tests/
+docs/
+*.md
+!README.md
