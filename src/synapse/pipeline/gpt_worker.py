@@ -109,4 +109,8 @@ class GPTWorker(PipelineWorker):
             return data['choices'][0]['message']['content'].strip()
         except (httpx.HTTPError, KeyError, IndexError, ValueError) as e:
             logger.error(f"Mistral request failed: {e}")
-            return "I didn't quite catch that. Could you tell me again?"
+            # Not "I didn't quite catch that" - the person spoke perfectly
+            # clearly and the server returned a 401. Being told to repeat
+            # yourself when you were understood is corrosive for someone who
+            # is already unsure whether they are making sense.
+            return "I can't work that one out just now, but I'm still here."
