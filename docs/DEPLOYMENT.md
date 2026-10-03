@@ -50,6 +50,11 @@ docker build -t synapse .
 docker run -p 8000:8000 --env-file .env synapse
 ```
 
+`.dockerignore` keeps `.env`, the database and the memory store out of the
+image. Without it `COPY . .` bakes the live keys into a layer that anyone who
+can pull the image can read back — along with about ten gigabytes of virtualenv
+and model weights.
+
 The image ships without the inference wheels, because they are several
 gigabytes and the app degrades cleanly without them — reminders, conversation
 and the dashboard all work, and anything needing a model says so. To include
@@ -71,7 +76,9 @@ docker build --build-arg WITH_ML=1 -t synapse .
 | `ALLOWED_HOSTS` | Your domain. Also derives `CSRF_TRUSTED_ORIGINS`. |
 | `TIME_ZONE` | Where the person is. Reminders are spoken in local terms. |
 | `OLLAMA_URL` | The intent router. Must be reachable from the container. |
-| `MISTRAL_API_KEY` | The reasoning layer. |
+| `MISTRAL_API_KEY` | The reasoning layer. Without a working key every open question falls back, so check it before going live. |
+| `SYNAPSE_MEMORY_DIR` | Point at a persistent volume, or every memory is lost on the next deploy. |
+| `EMERGENCY_NUMBER` | Optional. Spoken only when a turn is escalated. Empty by default, because a wrong number is worse than none. |
 
 Static files are served by WhiteNoise, so no separate web server is needed.
 TLS is assumed to terminate at the platform's proxy; `SECURE_PROXY_SSL_HEADER`
